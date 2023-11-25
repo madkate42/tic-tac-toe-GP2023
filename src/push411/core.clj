@@ -1,41 +1,25 @@
 (ns push411.core)
 
 (comment
-  "Kate Bondarenko:
-
-   Implementation of GP system using Push language. 
-
-   I found that running push-gp with smaller maximum genome length 
-   works better for this specific problem. 
-   My best results were obtained using this configuration:
-
-   {:instructions default-instructions
-    :error-function regression-error-function
-    :max-generations 500
-    :population-size 100
-    :max-initial-plushy-size 50}
-   
-   For the training cases, I wrote a couple small ones for faster runs; one
-   that I like very much is (0 1 2 3 5 10 15 1253). Since the first few values are smal
-   and not far from each other, (in my opinion) it helps the evolution find where to go.. 
-   The last big value is to affirm that the solution is working for a far away value. 
-   Evolutions went better on smaller and simpler training cases! But there are also ways
-   to generate a long a complicated trainin case; one way could be (range -100 100). 
-
-   Everything else was pretty straighforward and my test file shows that most of the 
-   stuff works as intended
-   ")
-
+  "Kate Bondarenko")
 
 ;;;;;;;;;;
 ;; Examples
 
 ; An example Push state
 (def example-push-state
-  {:exec '(integer_+ integer_-)
-   :integer '(10 20 3 4 5 6 7)
+  {:exec '(exec_if integer_+ integer_-)
+   :integer '(100 10 20 3 4 5 6 7)
    :string '("abc" "def")
+   :boolean (list true true)
    :input {:in1 4 :in2 6}})
+
+(def example-player-state
+  {:exec '(exec_if integer_+ integer_-)
+     :integer '(2 10 20 3 4 5 6 7)
+     :string '("abc" "def")
+     :boolean (list true true)
+     :board [0 0 1 0 0 1 0 0 2]})
 
 ; An example Plushy genome
 (def example-plushy-genome
@@ -67,24 +51,106 @@
    'integer_-
    'integer_*
    'integer_%
+   'boolean_=
+   'boolean_and
+   'boolean_or
    'exec_dup
    'close
    0
-   1))
+   1
+   true 
+   false))
 
 ; number of code blocks opened by instructions (default = 0)
 (def opened-blocks
   {'exec_dup 1})
 
-
 ;;;;;;;;;
 ;; Utilities
+
+
+;; Board utilities 
 
 (def empty-push-state
   {:exec '()
    :integer '()
    :string '()
-   :input {}})
+   :boolean '()
+   :input {}
+   :board []})
+
+(def empty-board [0 0 0 0 0 0 0 0 0])
+
+(defn inverse-board 
+  [board]
+  (loop [new-board []
+         index 0]
+    (cond  
+      (= index 9) new-board
+      (= (nth board index) 0) (recur (conj new-board 0) (inc index))
+      (= (nth board index) 1) (recur (conj new-board 2) (inc index))
+      (= (nth board index) 2) (recur (conj new-board 1) (inc index)))))
+
+(defn add-move-to-board
+  "puts a 1 in the position 0-8"
+  [board position]
+  (assoc board position 1))
+
+(defn valid-move? 
+  [board position]
+  (if (= (type position) Long)
+   (if (and (< position 9) (= 0 (nth board position)))
+    true
+    false)
+  false))
+
+; https://clojuredocs.org/clojure.core/doseq
+(defn print-board
+  "Prints a vector representing a 3x3 grid in a formatted way"
+  [board]
+  (println "_________")
+  (doseq [row (partition 3 board)]
+    (println "|" (clojure.string/join " " row) "|"))
+  (println "---------"))
+
+
+; https://clojuredocs.org/clojure.core/some
+(defn check-win
+  "Takes a vector representing a 3x3 grid and checks for a win 
+   (three 1s in a row, column, or diagonal)"
+  [board]
+  (let [rows [(subvec board 0 3) (subvec board 3 6) (subvec board 6 9)]
+        cols [(mapv nth rows [0 0 0]) (mapv nth rows [1 1 1]) (mapv nth rows [2 2 2])]
+        diags [(mapv nth rows [0 1 2]) (mapv nth rows [2 1 0])]
+        lines (concat rows cols diags)]
+    (some #(= [1 1 1] %) lines)))
+
+(if (check-win [1 1 1 0 0 0 0 0 0])
+  true 
+  false)
+
+;; elo score utilities
+
+(defn adjust-elo
+  "d is either 1 if rating1 wins, 
+   2 if rating2 wins
+   0 if draw."
+  [rating1 rating2 d]
+  (let [exp-score1 (/ 1 (+ 1 (Math/pow 10 (/ (- rating2 rating1) 400))))
+        exp-score2 (/ 1 (+ 1 (Math/pow 10 (/ (- rating1 rating2) 400))))
+        score1 (cond (= d 1) 1
+                     (= d 2) 0
+                     :else 0.5)
+        score2 (cond (= d 1) 0
+                     (= d 2) 1
+                     :else 0.5)
+        new-rating1 (+ rating1 (* 32 (- score1 exp-score1)))
+        new-rating2 (+ rating2 (* 32 (- score2 exp-score2)))]
+    [new-rating1 new-rating2]))
+
+(defn update-individ-elo
+  [player new-elo]
+  (conj player (hash-map :elo new-elo)))
 
 (defn push-to-stack
   "Pushes item onto stack in state, returning the resulting state.
@@ -132,6 +198,7 @@
           (recur (pop-stack state stack)
                  (rest stacks)
                  (conj args (peek-stack state stack))))))))
+
 
 (defn make-push-instruction
   "A utility function for making Push instructions. Takes a state, the function
@@ -188,11 +255,100 @@
                                (quot num den)))]
     (make-push-instruction state protected-division [:integer :integer] :integer)))
 
+(defn integer_=
+  [state]
+  (make-push-instruction state = [:integer :integer] :boolean))
+
+(defn integer_>
+  [state]
+  (let [greater (fn
+                  [num1 num2]
+                  (if (> num1 num2)
+                    true
+                    false))]
+  (make-push-instruction state greater [:integer :integer] :boolean)))
+
+(defn integer_<
+  [state]
+  (let [less (fn
+                  [num1 num2]
+                  (if (> num1 num2)
+                    false
+                    true))]
+    (make-push-instruction state less [:integer :integer] :boolean)))
+
+(defn boolean_=
+  [state]
+  (make-push-instruction state = [:boolean :boolean] :boolean))
+ 
+(defn boolean_and
+  [state]
+  (let [and-f (fn [a b]
+                (if (and a b)
+                  true
+                  false))]
+   (make-push-instruction state and-f [:boolean :boolean] :boolean)))
+
+(defn boolean_or
+  [state]
+  (make-push-instruction state 'or [:boolean :boolean] :boolean))
+
+(defn exec_if 
+  [state]
+  state) ; it's simple
+
+
+(defn empty-square?
+  "Pop the integer, checks if board at that integer is empty,
+   pushes true if empty, false if not empty.
+   What happens if the value is not 1-9??"
+  [state]
+  (let [board (state :board)
+        position (peek-stack state :integer)
+        new-state (pop-stack state :integer)]
+    (if (or (not= 0 (nth board position)) (> position 8))
+      (push-to-stack new-state :boolean false) 
+      (push-to-stack new-state :boolean true))))
+
+(defn enemy-square?
+  "Pop the integer, checks if board at that integer is empty,
+   pushes true if empty, false if not empty.
+   What happens if the value is not 1-9??"
+  [state]
+  (let [board (state :board)
+        position (peek-stack state :integer)
+        new-state (pop-stack state :integer)]
+    (if (and (= (nth board position) 2) (not (> position 8)))
+      (push-to-stack new-state :boolean true)
+      (push-to-stack new-state :boolean false))))
+
+(defn my-square?
+  "Pop the integer, checks if board at that integer is empty,
+   pushes true if empty, false if not empty.
+   What happens if the value is not 1-9??"
+  [state]
+  (let [board (state :board)
+        position (peek-stack state :integer)
+        new-state (pop-stack state :integer)]
+    (if (and (= (nth board position) 1) (not (> position 8)))
+      (push-to-stack new-state :boolean true)
+      (push-to-stack new-state :boolean false))))
+
 (defn exec_dup
   [state]
   (if (empty-stack? state :exec)
     state
     (push-to-stack state :exec (first (:exec state)))))
+
+
+;; (defn exec-if 
+;;   [state]
+;;   (if (< (count (state :exec)) 3)
+;;     state
+;;     false))
+
+;; (exec-if example-push-state)
+
 
 ;;;;;;;;;
 ;; Interpreter
@@ -209,6 +365,7 @@
         topExecItem (peek-stack push-state :exec)
         topExecItemType (type topExecItem)]
     (cond
+      (= topExecItemType Boolean) (push-to-stack newState :boolean topExecItem)
       (= topExecItemType Long) (push-to-stack newState :integer topExecItem)
       (= topExecItemType String) (push-to-stack newState :string topExecItem)
       (= topExecItemType clojure.lang.PersistentList)
@@ -288,6 +445,66 @@
   (let [competing (take 7 (shuffle population))]
     (first (sort-by :total-error competing))))
 
+(defn make-move
+  "Runs program on board, returns the board with a new move
+   the new move is 1
+   after the program is interpreted, there will be an integer on the stack
+   if it's valid and "
+  [individ board]
+  (let [start-state (conj empty-push-state (hash-map :board board))
+        program (translate-plushy-to-push (:genome individ))
+        return-state (interpret-push-program program start-state)
+        position (peek-stack return-state :integer) 
+        new-board board]
+    (if (valid-move? board position)
+      (add-move-to-board board position)
+      false)))
+
+(defn play-game 
+  [board current other]
+  (let [new-board (make-move current board)]
+    (cond
+      (false? new-board) ;; Current player failed to make a valid move, other player wins
+      {:winner other :loser current :draw false}
+
+      (check-win new-board) ;; Current player wins
+      {:winner current :loser other :draw false}
+
+      ;; Check for draw
+      (not-any? zero? new-board)
+      {:winner nil :loser nil :draw true}
+
+      :else ;; Continue the game, switch players
+      (recur (inverse-board new-board) other current))))
+
+
+(defn compete
+  "Takes two individuals and they compete, returning them with updated elo-scores."
+  [player1 player2]
+    (let [{:keys [winner loser draw]} (play-game empty-board player1 player2)
+          result (cond
+                   draw 0
+                   (= winner player1) 1
+                   :else 2)
+          [new-rating1 new-rating2] (adjust-elo (:elo player1) (:elo player2) result)
+          updated-player1 (update-individ-elo player1 new-rating1)
+          updated-player2 (update-individ-elo player2 new-rating2)]
+      [updated-player1 updated-player2]))
+
+
+;; (defn round-robin )
+
+(def eloind (first (initialize-population 10 50)))
+eloind
+(:genome eloind)
+(def program (translate-plushy-to-push (:genome eloind)))
+program
+(conj (dissoc start-state :board) (hash-map :board (concat program (start-state :board))))
+(interpret-push-program (translate-plushy-to-push (:genome eloind)) empty-push-state)
+(interpret-one-step program)
+
+
+
 (defn crossover
   "Crosses over two Plushy genomes (note: not individuals) using uniform crossover.
   Returns child Plushy genome."
@@ -302,7 +519,7 @@
                                           (count prog-b))
                                     prog-b
                                     prog-a))))))
-(map vector '(1 2 3) '(4 5 6))
+
 (defn uniform-addition
   "Randomly adds new instructions before every instruction (and at the end of
   the Plushy genomes) with some probability. Returns child Plushy genome."
@@ -336,6 +553,48 @@
       (>= chance 0.25) (hash-map :genome (uniform-addition parent1-genome instructions))
       :else (hash-map :genome (uniform-deletion parent1-genome)))))
 
+(defn select-and-vary-elo-inherit
+  "Selects parent(s) from population and varies them, returning
+  a child individual (note: not program/genome). Chooses which genetic operator
+  to use probabilistically. Gives 50% chance to crossover,
+  25% to uniform-addition, and 25% to uniform-deletion."
+  [population instructions]
+  (let [parent1 (tournament-selection population)
+        parent2 (tournament-selection population) ; this will become Elo tournament
+        parent1-elo (parent1 :elo)
+        parent2-elo (parent2 :elo)
+        parent1-genome (parent1 :genome)
+        parent2-genome (parent2 :genome)
+        chance (rand)]
+    (cond
+      (>= chance 0.5) (hash-map :genome (crossover parent1-genome parent2-genome)
+                                :elo (/ (+ parent2-elo parent1-elo) 2)) ; think if it should be average between the two???
+      (>= chance 0.25) (hash-map :genome (uniform-addition parent1-genome instructions)
+                                 :elo parent1-elo)
+      :else (hash-map :genome (uniform-deletion parent1-genome)
+                      :elo parent1-elo))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 (defn report
   "Reports information on the population each generation. Should look something
   like the following (should contain all of this info; format however you think
@@ -365,7 +624,9 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
   (repeatedly population-size
               #(hash-map :genome 
                          (make-random-plushy-genome default-instructions 
-                                                    max-initial-plushy-size))))
+                                                    max-initial-plushy-size),
+                         :elo 1000)))
+
 ;; https://clojuredocs.org/clojure.core/sort-by
 (defn push-gp
   "Main GP loop. Initializes the population, and then repeatedly
