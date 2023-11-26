@@ -56,8 +56,10 @@
    'boolean_or
    'exec_dup
    'close
-   0
-   1
+   'empty-square?
+   'my-square?
+   'enemy-square?
+   0 1 2 3 4 5 6 7 8 9 10
    true 
    false))
 
@@ -99,12 +101,12 @@
 (defn valid-move? 
   [board position]
   (if (= (type position) Long)
-   (if (< position 9) 
-            (if (= 0 (nth board position))
-            true 
-              false)) 
+   (if (and (>= position 0) (< position 9) )
+     (if (= 0 (nth board position)) 
+       true 
+       false) 
     false)
-  false)
+  false))
 
 ; https://clojuredocs.org/clojure.core/doseq
 (defn print-board
@@ -300,49 +302,102 @@
   [state]
   state) ; it's simple
 
+(defn check-board-position 
+  [board position]
+  (if (= (type position) Long)
+    (if (and (>= position 0) (< position 9))
+      (nth board position)
+      false)
+    false))
+
+
+;; (defn empty-square?
+;;   "Pop the integer, checks if board at that integer is empty,
+;;    pushes true if empty, false if not empty.
+;;    What happens if the value is not 1-9??"
+;;   [state]
+;;   (if (empty-stack? state :integer)
+;;     (do (println "Hello, stack empty")
+;;         false)
+;;     (let [board (state :board)
+;;         position (peek-stack state :integer)
+;;         new-state (pop-stack state :integer)]
+;;     (if (or (not= 0 (nth board position)) (> position 8))
+;;       (push-to-stack new-state :boolean false) 
+;;       (push-to-stack new-state :boolean true)))))
 
 (defn empty-square?
   "Pop the integer, checks if board at that integer is empty,
    pushes true if empty, false if not empty.
    What happens if the value is not 1-9??"
-  [state]
-  (let [board (state :board)
-        position (peek-stack state :integer)
-        new-state (pop-stack state :integer)]
-    (if (or (not= 0 (nth board position)) (> position 8))
-      (push-to-stack new-state :boolean false) 
-      (push-to-stack new-state :boolean true))))
+  [state] 
+  (let [what-on-board (check-board-position (state :board) (peek-stack state :integer))] 
+    (if (not what-on-board)
+      (if (= what-on-board 0) 
+        (push-to-stack (pop-stack state :integer) :boolean true)
+        (push-to-stack (pop-stack state :integer) :boolean false))
+      (push-to-stack (pop-stack state :integer) :boolean false))))
+
+(pop-stack empty-push-state :integer)
+
+;; (defn enemy-square?
+;;   "Pop the integer, checks if board at that integer is empty,
+;;    pushes true if empty, false if not empty.
+;;    What happens if the value is not 1-9??"
+;;   [state]
+;;   (if (empty-stack? state :integer)
+;;     false
+;;    (let [board (state :board)
+;;         position (peek-stack state :integer)
+;;         new-state (pop-stack state :integer)]
+;;     (if (and (= (nth board position) 2) (not (> position 8)))
+;;       (push-to-stack new-state :boolean true)
+;;       (push-to-stack new-state :boolean false)))))
 
 (defn enemy-square?
   "Pop the integer, checks if board at that integer is empty,
    pushes true if empty, false if not empty.
    What happens if the value is not 1-9??"
   [state]
-  (let [board (state :board)
-        position (peek-stack state :integer)
-        new-state (pop-stack state :integer)]
-    (if (and (= (nth board position) 2) (not (> position 8)))
-      (push-to-stack new-state :boolean true)
-      (push-to-stack new-state :boolean false))))
+  (let [what-on-board (check-board-position (state :board) (peek-stack state :integer))]
+    (if (not what-on-board)
+      (if (= what-on-board 2)
+        (push-to-stack (pop-stack state :integer) :boolean true)
+        (push-to-stack (pop-stack state :integer) :boolean false))
+      (push-to-stack (pop-stack state :integer) :boolean false))))
+
+;; (defn my-square?
+;;   "Pop the integer, checks if board at that integer is empty,
+;;    pushes true if empty, false if not empty.
+;;    What happens if the value is not 1-9??"
+;;   [state]
+;;   (if (empty-stack? state :integer)
+;;     false
+;;     (let [board (state :board)
+;;           position (peek-stack state :integer)
+;;           new-state (pop-stack state :integer)]
+;;       (if (and (= (nth board position) 1) (not (> position 8)))
+;;         (push-to-stack new-state :boolean true)
+;;         (push-to-stack new-state :boolean false)))))
 
 (defn my-square?
   "Pop the integer, checks if board at that integer is empty,
    pushes true if empty, false if not empty.
    What happens if the value is not 1-9??"
   [state]
-  (let [board (state :board)
-        position (peek-stack state :integer)
-        new-state (pop-stack state :integer)]
-    (if (and (= (nth board position) 1) (not (> position 8)))
-      (push-to-stack new-state :boolean true)
-      (push-to-stack new-state :boolean false))))
+  (let [what-on-board (check-board-position (state :board) (peek-stack state :integer))]
+    (if (not what-on-board)
+      (if (= what-on-board 1)
+        (push-to-stack (pop-stack state :integer) :boolean true)
+        (push-to-stack (pop-stack state :integer) :boolean false))
+      (push-to-stack (pop-stack state :integer) :boolean false))))
+
 
 (defn exec_dup
   [state]
   (if (empty-stack? state :exec)
     state
     (push-to-stack state :exec (first (:exec state)))))
-
 
 ;; (defn exec-if 
 ;;   [state]
@@ -521,44 +576,21 @@
    individal. Population is returned in the same order"
   [population]
   (loop [updated-pop (compete-all (first population) population)
-         new-pop []]
+         new-pop (vector (first updated-pop))]
     (let [remaining (rest updated-pop)]
       (if (empty? remaining)
-        (conj new-pop (first updated-pop))
+        new-pop
         (recur (compete-all (first remaining) remaining) (conj new-pop (first remaining)))))
     ))
 
 
-(round-robin fake-pop2)
+;; (defn conduct-scoring
+;;   "distributes by elo, and conducts scoring for everyone"
+;;   [population]
+;;   (let [new-pop population
+;;         ]))
 
 
-(compete-all (first fake-pop2) fake-pop2)
-(def fake-pop2 (initialize-population 5 1))
-
-(round-robin (initialize-population 10 1))
-(def fake-pop (initialize-population 10 10 ))
-(round-robin fake-pop2)
-fake-pop2
-(compete (nth fake-pop 1) (nth fake-pop 2))
-
-
-
-;; (def eloind (first (initialize-population 10 50)))
-;; eloind
-;; (:genome eloind)
-;; (def program (translate-plushy-to-push (:genome eloind)))
-;; program
-;; (conj (dissoc start-state :board) (hash-map :board (concat program (start-state :board))))
-;; (interpret-push-program (translate-plushy-to-push (:genome eloind)) empty-push-state)
-;; (interpret-one-step program)
-
-(defn conduct-scoring
-  "distributes by elo, and conducts scoring for everyone"
-  [population]
-  (let [new-pop population
-        ]))
-
-kate
 
 (defn crossover
   "Crosses over two Plushy genomes (note: not individuals) using uniform crossover.
