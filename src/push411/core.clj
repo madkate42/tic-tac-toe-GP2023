@@ -54,6 +54,28 @@
    :errors [8 7 6 5 4 3 2 1 0 1]
    :total-error 37})
 
+(def example-great-player1
+  {
+   :genome '(4
+             empty-square?
+             exec_if
+             4
+             5)
+   :elo 1000
+  })
+
+(def example-great-player2
+  {:genome '(4
+             empty-square?
+             exec_if
+             integer_+
+             close
+             integer_%
+             2
+             close)
+   :elo 1000})
+
+
 ;;;;;;;;;;
 ; Instructions must all be either functions that take one Push state and return another
 ; or constant literals.
@@ -81,7 +103,8 @@
 
 ; number of code blocks opened by instructions (default = 0)
 (def opened-blocks
-  {'exec_dup 1})
+  {'exec_dup 1
+   'exec_if 2})
 
 ;;;;;;;;;
 ;; Utilities
@@ -142,11 +165,10 @@
         cols [(mapv nth rows [0 0 0]) (mapv nth rows [1 1 1]) (mapv nth rows [2 2 2])]
         diags [(mapv nth rows [0 1 2]) (mapv nth rows [2 1 0])]
         lines (concat rows cols diags)]
+    (println "-----------------------------")
+    (println "| GAME COMPLETED WITH A WIN |")
+    (println "-----------------------------")
     (some #(= [1 1 1] %) lines)))
-
-(if (check-win [1 1 1 0 0 0 0 0 0])
-  true 
-  false)
 
 ;; elo score utilities
 
@@ -155,17 +177,19 @@
    2 if rating2 wins
    0 if draw."
   [rating1 rating2 d]
-  (let [exp-score1 (/ 1 (+ 1 (Math/pow 10 (/ (- rating2 rating1) 400))))
-        exp-score2 (/ 1 (+ 1 (Math/pow 10 (/ (- rating1 rating2) 400))))
-        score1 (cond (= d 1) 1
-                     (= d 2) 0
-                     :else 0.5)
-        score2 (cond (= d 1) 0
-                     (= d 2) 1
-                     :else 0.5)
-        new-rating1 (+ rating1 (* 32 (- score1 exp-score1)))
-        new-rating2 (+ rating2 (* 32 (- score2 exp-score2)))]
-    [new-rating1 new-rating2]))
+  (if (or (= rating1 nil) (= rating2 nil))
+    [rating1 rating2]
+    (let [exp-score1 (/ 1 (+ 1 (Math/pow 10 (/ (- rating2 rating1) 400))))
+          exp-score2 (/ 1 (+ 1 (Math/pow 10 (/ (- rating1 rating2) 400))))
+          score1 (cond (= d 1) 1
+                       (= d 2) 0
+                       :else 0.5)
+          score2 (cond (= d 1) 0
+                       (= d 2) 1
+                       :else 0.5)
+          new-rating1 (+ rating1 (* 32 (- score1 exp-score1)))
+          new-rating2 (+ rating2 (* 32 (- score2 exp-score2)))]
+      [new-rating1 new-rating2])))
 
 (defn update-individ-elo
   [player new-elo]
@@ -312,12 +336,10 @@
   [state]
   (make-push-instruction state 'or [:boolean :boolean] :boolean))
 
-(defn exec_if 
-  [state]
-  state) ; it's simple
 
 (defn check-board-position 
   [board position]
+  ;; (println position)
   (if (= (type position) Long)
     (if (and (>= position 0) (< position 9))
       (nth board position)
@@ -330,11 +352,13 @@
    What happens if the value is not 1-9??"
   [state] 
   (let [what-on-board (check-board-position (state :board) (peek-stack state :integer))] 
-    (if (not what-on-board)
-      (if (= what-on-board 0) 
+    ;; (println what-on-board)
+    (if (not= what-on-board false)
+       (if (= what-on-board 0) 
         (push-to-stack (pop-stack state :integer) :boolean true)
         (push-to-stack (pop-stack state :integer) :boolean false))
       (push-to-stack (pop-stack state :integer) :boolean false))))
+
 
 (defn enemy-square?
   "Pop the integer, checks if board at that integer is empty,
@@ -342,7 +366,7 @@
    What happens if the value is not 1-9??"
   [state]
   (let [what-on-board (check-board-position (state :board) (peek-stack state :integer))]
-    (if (not what-on-board)
+    (if (not= what-on-board false)
       (if (= what-on-board 2)
         (push-to-stack (pop-stack state :integer) :boolean true)
         (push-to-stack (pop-stack state :integer) :boolean false))
@@ -354,7 +378,7 @@
    What happens if the value is not 1-9??"
   [state]
   (let [what-on-board (check-board-position (state :board) (peek-stack state :integer))]
-    (if (not what-on-board)
+    (if (not= what-on-board false)
       (if (= what-on-board 1)
         (push-to-stack (pop-stack state :integer) :boolean true)
         (push-to-stack (pop-stack state :integer) :boolean false))
@@ -369,7 +393,8 @@
 (defn exec_if 
   "EXEC.IF: If the top item of the BOOLEAN stack is TRUE 
    then this removes the second item on the EXEC stack, 
-   leaving the first item to be executed."
+   leaving the first item to be executed.
+   ^ from PUSH description page"
   [state]
   (if (and (> (count (state :exec)) 1) (not (empty-stack? state :boolean)))
     (let [top-boolean (peek-stack state :boolean)
@@ -392,6 +417,7 @@
   (let [newState (pop-stack push-state :exec)
         topExecItem (peek-stack push-state :exec)
         topExecItemType (type topExecItem)]
+    ;; (println push-state)
     (cond
       (= topExecItemType Boolean) (push-to-stack newState :boolean topExecItem)
       (= topExecItemType Long) (push-to-stack newState :integer topExecItem)
@@ -486,6 +512,7 @@
         position (peek-stack return-state :integer) 
         new-board board]
     (print-board new-board)
+    ;; (println individ)
     (if (valid-move? board position)
       (add-move-to-board board position)
       false)))
@@ -652,7 +679,6 @@ pop
 
 
 
-
 (defn report
   "Reports information on the population each generation. Should look something
   like the following (should contain all of this info; format however you think
@@ -717,110 +743,38 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
 
 (defn tic-tac-toe-push-gp
   "Let's see real quick how it does."
-  [{:keys [population-size max-generations error-function instructions max-initial-plushy-size]
+  [{:keys [population-size max-generations instructions max-initial-plushy-size]
     :as argmap}]
   (loop [population (initialize-population population-size max-initial-plushy-size) ; start pop
          generation 1]
-    (let [sorted-population (reverse (sort-by :elo (round-robin population))) ; sort pop from best to worst
-          new-child (select-and-vary sorted-population instructions)] ; make a new child 
-      (println (first sorted-population) (nth sorted-population 1))
-      (recur (concat (butlast sorted-population) (list new-child))
-             (inc generation)))))
+    (if (< generation max-generations)
+      (do
+        (println population)
+        (let [sorted-population (reverse (sort-by :elo (round-robin population))) ; sort pop from best to worst
+              new-child (select-and-vary-elo-inherit sorted-population instructions)] ; make a new child 
+          (println (first sorted-population) (nth sorted-population 1))
+          (recur (concat (butlast sorted-population) (list new-child))
+                 (inc generation))))
+      population)))
 
-;;;;;;;;;;
-;; The error function
-;; The functions below are specific to a particular problem.
-;; A different problem would require replacing these functions.
-;; Problem: f(x) = x^3 + x + 3
-
-(defn target-function
-  "Target function: f(x) = x^3 + x + 3
-  Should literally compute this mathematical function."
-  [x]
-  (+ 3 (+ x (* (* x x) x))))
-
-;; these are the training cases that I use. There can be different ones.
-(def training-cases '(0 1 2 3 5 10 15 1253))
-;; (def training-cases '(-25 -13 1 17 29 57 111 167))
-;; (def training-cases (range -50 50))
-
-
-(comment
-  "Regression-error-function
-   
-   First, translates genome to push-program.
-   Loops through all test cases carrying errors list with the loop. 
-   Within an iteration:
-     if all test cases have been through, return a new individual by attaching
-     errors list to the individual.
-     else, go to the next test-case.")
-
-(defn regression-error-function
-  "Takes an individual and evaluates it on some training cases.
-    This will need to translate each individual's Plushy genome into a Push
-    program before executing the Push program (see translate-plushy-to-push).
-    For each training case,
-    runs program with the input set to :in1 in the :input map part of the Push state.
-    Then, the output is the integer on top of the integer stack in the Push state
-    returned by the interpreter. Computes each error by comparing output of
-    the program to the correct output.
-    Returns the individual with :errors set to the list of errors on each case,
-    and :total-error set to the sum of the errors. You may also want to set
-    :program to be the Push program translated from the Plushy genome, though
-    this isn't mandatory.
-    Note: You must consider what to do if the program doesn't leave anything
-    on the integer stack."
-  [individual]
-  (let [push-program (translate-plushy-to-push (individual :genome)) ; interpet genome
-        new-individual individual
-        cases-total (- (count training-cases) 1)]
-    (loop [index 0
-           errors []] ; initialize errors list
-      (if (= index cases-total)
-        (conj
-         (conj
-          (conj (dissoc new-individual :errors) (hash-map :errors errors)) ; add errors to individ
-          (hash-map :total-error (apply + errors))) ; add total-error (sum of all errors)
-         (hash-map :program push-program)) ; also add program to individ
-        (recur (inc index)
-               (conj
-                errors
-                (let [test-case (nth training-cases index) ; next case
-                      start-state (conj empty-push-state ; add input to new start-state
-                                        (hash-map :input (hash-map :in1 test-case)))
-                      result-state (interpret-push-program push-program start-state) ; get new result
-                      result (peek-stack result-state :integer)] ; see the result in the stack
-                  (if (= result :no-stack-item)
-                    100000 ; arbitrary big error if integer stack is empty
-                    (abs (- (target-function test-case) result)))))))))) ; calculate error
-
-
-
-; my preferred config to call.
-;; (push-gp {:instructions default-instructions
-;;           :error-function regression-error-function
-;;           :max-generations 300
-;;           :population-size 120
-;;           :max-initial-plushy-size 50})
-
-;;;;;;;;;;
-;; The main function call
-;; You can call this in a REPL, or alternatively from the command line
-;; by running:
-;;   clj -X push411.core/main
-;; Additionally, if you want to pass command line arguments as a map to args,
-;; you can run something like:
-;;   clj -X push411.core/main :selection :lexicase
 
 (defn main
   "Runs push-gp, giving it a map of arguments."
   ([] (main {}))
   ([args]
    (tic-tac-toe-push-gp {:instructions default-instructions
-             :error-function regression-error-function
              :max-generations 100
              :population-size 100
-             :max-initial-plushy-size 100})))
+             :max-initial-plushy-size 50})))
+
+(def run1 (main))
+(def run2 (main))
+(def run3 (main))
+(def run4 (main))
+
+(compete (first run4) (second run4))
+(first run3)
+(first (sort-by :elo run4))
 
 (comment
 
