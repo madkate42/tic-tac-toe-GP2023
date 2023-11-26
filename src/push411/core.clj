@@ -99,10 +99,12 @@
 (defn valid-move? 
   [board position]
   (if (= (type position) Long)
-   (if (and (< position 9) (= 0 (nth board position)))
-    true
+   (if (< position 9) 
+            (if (= 0 (nth board position))
+            true 
+              false)) 
     false)
-  false))
+  false)
 
 ; https://clojuredocs.org/clojure.core/doseq
 (defn print-board
@@ -136,6 +138,7 @@
    2 if rating2 wins
    0 if draw."
   [rating1 rating2 d]
+  ;; (println rating1 rating2 d))
   (let [exp-score1 (/ 1 (+ 1 (Math/pow 10 (/ (- rating2 rating1) 400))))
         exp-score2 (/ 1 (+ 1 (Math/pow 10 (/ (- rating1 rating2) 400))))
         score1 (cond (= d 1) 1
@@ -445,6 +448,7 @@
   (let [competing (take 7 (shuffle population))]
     (first (sort-by :total-error competing))))
 
+
 (defn make-move
   "Runs program on board, returns the board with a new move
    the new move is 1
@@ -462,7 +466,7 @@
 
 (defn play-game 
   [board current other]
-  (let [new-board (make-move current board)]
+  (let [new-board (make-move current board)] 
     (cond
       (false? new-board) ;; Current player failed to make a valid move, other player wins
       {:winner other :loser current :draw false}
@@ -477,8 +481,7 @@
       :else ;; Continue the game, switch players
       (recur (inverse-board new-board) other current))))
 
-
-(defn compete
+(defn compete-helper
   "Takes two individuals and they compete, returning them with updated elo-scores."
   [player1 player2]
     (let [{:keys [winner loser draw]} (play-game empty-board player1 player2)
@@ -491,19 +494,71 @@
           updated-player2 (update-individ-elo player2 new-rating2)]
       [updated-player1 updated-player2]))
 
-
-;; (defn round-robin )
-
-(def eloind (first (initialize-population 10 50)))
-eloind
-(:genome eloind)
-(def program (translate-plushy-to-push (:genome eloind)))
-program
-(conj (dissoc start-state :board) (hash-map :board (concat program (start-state :board))))
-(interpret-push-program (translate-plushy-to-push (:genome eloind)) empty-push-state)
-(interpret-one-step program)
+(defn compete
+  "Does it at chance"
+  [player1 player2]
+  (let [chance (rand-int 2)]
+    (if (= chance 0) ; first starts first
+      (compete-helper player1 player2)
+      (reverse (compete-helper player2 player1)))))
 
 
+(defn compete-all
+  "The individual competes with all others in the population. 
+   The individual and population are updated after each game."
+  [individual population]
+  (loop [individual individual
+         remaining (rest population)
+         updated-population []]
+    (if (empty? remaining)
+      (concat [individual] updated-population)
+      (let [[updated-individual updated-competitor] (compete individual (first remaining))]
+        (recur updated-individual (rest remaining) (conj updated-population updated-competitor))))))
+
+
+(defn round-robin 
+  "Every individual competes against every other
+   individal. Population is returned in the same order"
+  [population]
+  (loop [updated-pop (compete-all (first population) population)
+         new-pop []]
+    (let [remaining (rest updated-pop)]
+      (if (empty? remaining)
+        (conj new-pop (first updated-pop))
+        (recur (compete-all (first remaining) remaining) (conj new-pop (first remaining)))))
+    ))
+
+
+(round-robin fake-pop2)
+
+
+(compete-all (first fake-pop2) fake-pop2)
+(def fake-pop2 (initialize-population 5 1))
+
+(round-robin (initialize-population 10 1))
+(def fake-pop (initialize-population 10 10 ))
+(round-robin fake-pop2)
+fake-pop2
+(compete (nth fake-pop 1) (nth fake-pop 2))
+
+
+
+;; (def eloind (first (initialize-population 10 50)))
+;; eloind
+;; (:genome eloind)
+;; (def program (translate-plushy-to-push (:genome eloind)))
+;; program
+;; (conj (dissoc start-state :board) (hash-map :board (concat program (start-state :board))))
+;; (interpret-push-program (translate-plushy-to-push (:genome eloind)) empty-push-state)
+;; (interpret-one-step program)
+
+(defn conduct-scoring
+  "distributes by elo, and conducts scoring for everyone"
+  [population]
+  (let [new-pop population
+        ]))
+
+kate
 
 (defn crossover
   "Crosses over two Plushy genomes (note: not individuals) using uniform crossover.
