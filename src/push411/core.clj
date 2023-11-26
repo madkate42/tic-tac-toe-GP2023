@@ -32,6 +32,10 @@
   {:genome '(true 2 2 exec_if integer_+ integer_-)
    :elo 1000})
 
+(def individ-exec-if2
+  {:genome '(true exec_if)
+   :elo 1000})
+
 ; An example Plushy genome
 (def example-plushy-genome
   '(3 5 integer_* exec_dup "hello" 4 "world" integer_- close))
@@ -66,6 +70,7 @@
    'boolean_and
    'boolean_or
    'exec_dup
+   'exec_if
    'close
    'empty-square?
    'my-square?
@@ -150,7 +155,6 @@
    2 if rating2 wins
    0 if draw."
   [rating1 rating2 d]
-  ;; (println rating1 rating2 d))
   (let [exp-score1 (/ 1 (+ 1 (Math/pow 10 (/ (- rating2 rating1) 400))))
         exp-score2 (/ 1 (+ 1 (Math/pow 10 (/ (- rating1 rating2) 400))))
         score1 (cond (= d 1) 1
@@ -388,7 +392,6 @@
   (let [newState (pop-stack push-state :exec)
         topExecItem (peek-stack push-state :exec)
         topExecItemType (type topExecItem)]
-    (println "Interpreting one step: " push-state)
     (cond
       (= topExecItemType Boolean) (push-to-stack newState :boolean topExecItem)
       (= topExecItemType Long) (push-to-stack newState :integer topExecItem)
@@ -462,14 +465,14 @@
   (let [size (+ 1 (rand-int max-initial-plushy-size))]
     (repeatedly size #(rand-nth instructions))))
 
+; updated to using elo scoring.
 (defn tournament-selection
   "Selects an individual from the population using a tournament. Returned
   individual will be a parent in the next generation. Can use a fixed
   tournament size."
   [population]
   (let [competing (take 7 (shuffle population))]
-    (first (sort-by :total-error competing))))
-
+    (first (reverse (sort-by :elo competing)))))
 
 (defn make-move
   "Runs program on board, returns the board with a new move
@@ -482,6 +485,7 @@
         return-state (interpret-push-program program start-state)
         position (peek-stack return-state :integer) 
         new-board board]
+    (print-board new-board)
     (if (valid-move? board position)
       (add-move-to-board board position)
       false)))
@@ -550,6 +554,11 @@
         (recur (compete-all (first remaining) remaining) (conj new-pop (first remaining)))))
     ))
 
+(def pop (round-robin (initialize-population 25 50)))
+(def cool1 (first (reverse (sort-by :elo pop))))
+(def cool2 (nth (reverse (sort-by :elo pop)) 1))
+(compete cool1 cool2)
+pop
 
 ;; (defn conduct-scoring
 ;;   "distributes by elo, and conducts scoring for everyone"
@@ -644,11 +653,6 @@
 
 
 
-
-
-
-
-
 (defn report
   "Reports information on the population each generation. Should look something
   like the following (should contain all of this info; format however you think
@@ -711,6 +715,17 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
          (recur (concat (butlast sorted-population) (list new-child))
                 (inc generation))))))
 
+(defn tic-tac-toe-push-gp
+  "Let's see real quick how it does."
+  [{:keys [population-size max-generations error-function instructions max-initial-plushy-size]
+    :as argmap}]
+  (loop [population (initialize-population population-size max-initial-plushy-size) ; start pop
+         generation 1]
+    (let [sorted-population (reverse (sort-by :elo (round-robin population))) ; sort pop from best to worst
+          new-child (select-and-vary sorted-population instructions)] ; make a new child 
+      (println (first sorted-population) (nth sorted-population 1))
+      (recur (concat (butlast sorted-population) (list new-child))
+             (inc generation)))))
 
 ;;;;;;;;;;
 ;; The error function
@@ -780,6 +795,7 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
                     (abs (- (target-function test-case) result)))))))))) ; calculate error
 
 
+
 ; my preferred config to call.
 ;; (push-gp {:instructions default-instructions
 ;;           :error-function regression-error-function
@@ -800,10 +816,10 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
   "Runs push-gp, giving it a map of arguments."
   ([] (main {}))
   ([args]
-   (push-gp {:instructions default-instructions
+   (tic-tac-toe-push-gp {:instructions default-instructions
              :error-function regression-error-function
-             :max-generations 500
-             :population-size 200
+             :max-generations 100
+             :population-size 100
              :max-initial-plushy-size 100})))
 
 (comment
