@@ -21,6 +21,17 @@
      :boolean (list true true)
      :board [0 0 1 0 0 1 0 0 2]})
 
+(def example-state-exec-if
+  {:exec '(exec_if integer_+ integer_-)
+   :integer '(10 6)
+   :string '("abc" "def")
+   :boolean (list true)
+   :board [0 0 1 0 0 1 0 0 2]})
+
+(def individ-exec-if
+  {:genome '(true 2 2 exec_if integer_+ integer_-)
+   :elo 1000})
+
 ; An example Plushy genome
 (def example-plushy-genome
   '(3 5 integer_* exec_dup "hello" 4 "world" integer_- close))
@@ -59,7 +70,7 @@
    'empty-square?
    'my-square?
    'enemy-square?
-   0 1 2 3 4 5 6 7 8 9 10
+   0 1 2 3 4 5 6 7 8 9
    true 
    false))
 
@@ -69,7 +80,6 @@
 
 ;;;;;;;;;
 ;; Utilities
-
 
 ;; Board utilities 
 
@@ -310,22 +320,6 @@
       false)
     false))
 
-
-;; (defn empty-square?
-;;   "Pop the integer, checks if board at that integer is empty,
-;;    pushes true if empty, false if not empty.
-;;    What happens if the value is not 1-9??"
-;;   [state]
-;;   (if (empty-stack? state :integer)
-;;     (do (println "Hello, stack empty")
-;;         false)
-;;     (let [board (state :board)
-;;         position (peek-stack state :integer)
-;;         new-state (pop-stack state :integer)]
-;;     (if (or (not= 0 (nth board position)) (> position 8))
-;;       (push-to-stack new-state :boolean false) 
-;;       (push-to-stack new-state :boolean true)))))
-
 (defn empty-square?
   "Pop the integer, checks if board at that integer is empty,
    pushes true if empty, false if not empty.
@@ -337,22 +331,6 @@
         (push-to-stack (pop-stack state :integer) :boolean true)
         (push-to-stack (pop-stack state :integer) :boolean false))
       (push-to-stack (pop-stack state :integer) :boolean false))))
-
-(pop-stack empty-push-state :integer)
-
-;; (defn enemy-square?
-;;   "Pop the integer, checks if board at that integer is empty,
-;;    pushes true if empty, false if not empty.
-;;    What happens if the value is not 1-9??"
-;;   [state]
-;;   (if (empty-stack? state :integer)
-;;     false
-;;    (let [board (state :board)
-;;         position (peek-stack state :integer)
-;;         new-state (pop-stack state :integer)]
-;;     (if (and (= (nth board position) 2) (not (> position 8)))
-;;       (push-to-stack new-state :boolean true)
-;;       (push-to-stack new-state :boolean false)))))
 
 (defn enemy-square?
   "Pop the integer, checks if board at that integer is empty,
@@ -366,20 +344,6 @@
         (push-to-stack (pop-stack state :integer) :boolean false))
       (push-to-stack (pop-stack state :integer) :boolean false))))
 
-;; (defn my-square?
-;;   "Pop the integer, checks if board at that integer is empty,
-;;    pushes true if empty, false if not empty.
-;;    What happens if the value is not 1-9??"
-;;   [state]
-;;   (if (empty-stack? state :integer)
-;;     false
-;;     (let [board (state :board)
-;;           position (peek-stack state :integer)
-;;           new-state (pop-stack state :integer)]
-;;       (if (and (= (nth board position) 1) (not (> position 8)))
-;;         (push-to-stack new-state :boolean true)
-;;         (push-to-stack new-state :boolean false)))))
-
 (defn my-square?
   "Pop the integer, checks if board at that integer is empty,
    pushes true if empty, false if not empty.
@@ -392,23 +356,25 @@
         (push-to-stack (pop-stack state :integer) :boolean false))
       (push-to-stack (pop-stack state :integer) :boolean false))))
 
-
 (defn exec_dup
   [state]
   (if (empty-stack? state :exec)
     state
     (push-to-stack state :exec (first (:exec state)))))
 
-;; (defn exec-if 
-;;   [state]
-;;   (if (< (count (state :exec)) 3)
-;;     state
-;;     false))
+(defn exec_if 
+  "EXEC.IF: If the top item of the BOOLEAN stack is TRUE 
+   then this removes the second item on the EXEC stack, 
+   leaving the first item to be executed."
+  [state]
+  (if (and (> (count (state :exec)) 1) (not (empty-stack? state :boolean)))
+    (let [top-boolean (peek-stack state :boolean)
+          new-state (pop-stack state :boolean)]
+        (if top-boolean ;if top is true, we have the second item
+          (update new-state :exec #(cons (first %) (nthrest % 2)))
+          (update new-state :exec #(rest %))))
+    state))
 
-;; (exec-if example-push-state)
-
-
-;;;;;;;;;
 ;; Interpreter
 
 (defn interpret-one-step
@@ -422,6 +388,7 @@
   (let [newState (pop-stack push-state :exec)
         topExecItem (peek-stack push-state :exec)
         topExecItemType (type topExecItem)]
+    (println "Interpreting one step: " push-state)
     (cond
       (= topExecItemType Boolean) (push-to-stack newState :boolean topExecItem)
       (= topExecItemType Long) (push-to-stack newState :integer topExecItem)
