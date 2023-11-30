@@ -249,7 +249,6 @@
          individuals)))
 
 
-
 ; Stack utilities
 
 (defn push-to-stack

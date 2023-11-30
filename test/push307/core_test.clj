@@ -206,14 +206,12 @@
          {:exec '() :boolean '()})))
 
 (deftest exec-dup-test
-  (is (= (core/exec_dup {:exec '(item1 item2 item3) :other-stacks '(...)})
-         {:exec '(item1 item1 item2 item3) :other-stacks '(...)}))
+  (is (= (core/exec_dup {:exec '(item1 item2 item3) })
+         {:exec '(item1 item1 item2 item3) }))
   ;only one item
-  (is (= (core/exec_dup {:exec '(item1) :other-stacks '(...)})
-         {:exec '(item1 item1) :other-stacks '(...)}))
+  (is (= (core/exec_dup {:exec '(item1)})
+         {:exec '(item1 item1)}))
 
-  (is (= (core/exec_dup {:exec '() :other-stacks '(...)})
-         {:exec '() :other-stacks '(...)}))
   (is (= (core/exec_dup {:exec '(item1 item2) :integer '(1 2 3) :boolean '(true false)})
          {:exec '(item1 item1 item2) :integer '(1 2 3) :boolean '(true false)})))
 
