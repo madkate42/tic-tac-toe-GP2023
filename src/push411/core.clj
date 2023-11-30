@@ -11,7 +11,7 @@
   {:exec '(exec_if integer_+ integer_-)
    :integer '(100 10 20 3 4 5 6 7)
    :string '("abc" "def")
-   :boolean (list true true)
+   :boolean (list true false)
    :input {:in1 4 :in2 6}})
 
 (def example-player-state
@@ -27,6 +27,13 @@
    :string '("abc" "def")
    :boolean (list true)
    :board [0 0 1 0 0 1 0 0 2]})
+
+(def example-execdorange-state
+  {:exec '(exec_do*range exec_if integer_+)
+   :integer '(5 1)
+   :string '("abc" "def")
+   :boolean (list true false)
+   :input {:in1 4 :in2 6}})
 
 (def individ-exec-if
   {:genome '(true 2 2 exec_if integer_+ integer_-)
@@ -61,8 +68,8 @@
              exec_if
              4
              5)
-   :elo 1000
-  })
+   :elo 1000})
+  
 
 (def example-great-player2
   {:genome '(4
@@ -88,9 +95,13 @@
    'integer_-
    'integer_*
    'integer_%
+   'integer_=
+   'integer_>
+   'integer_< 
    'boolean_=
    'boolean_and
    'boolean_or
+   'boolean_not
    'exec_dup
    'exec_if
    'close
@@ -139,12 +150,12 @@
 (defn valid-move? 
   [board position]
   (if (= (type position) Long)
-   (if (and (>= position 0) (< position 9) )
+   (if (and (>= position 0) (< position 9))
      (if (= 0 (nth board position)) 
        true 
        false) 
     false)
-  false))
+   false))
 
 ; https://clojuredocs.org/clojure.core/doseq
 (defn print-board
@@ -165,9 +176,6 @@
         cols [(mapv nth rows [0 0 0]) (mapv nth rows [1 1 1]) (mapv nth rows [2 2 2])]
         diags [(mapv nth rows [0 1 2]) (mapv nth rows [2 1 0])]
         lines (concat rows cols diags)]
-    ;; (println "-----------------------------")
-    ;; (println "| GAME COMPLETED WITH A WIN |")
-    ;; (println "-----------------------------")
     (some #(= [1 1 1] %) lines)))
 
 ;; elo score utilities
@@ -194,6 +202,32 @@
 (defn update-individ-elo
   [player new-elo]
   (conj player (hash-map :elo new-elo)))
+
+(defn calculate-elo-pop-range 
+  [population]
+  (let [sorted-pop (reverse (sort-by :elo population))]
+    {:elo-pop-range (- (:elo (first sorted-pop)) (:elo (last sorted-pop)))
+     :minimum (:elo (last sorted-pop))
+     :maximum (:elo (first sorted-pop))}))
+
+(defn filter-by-elo-range
+  [population minimum maximum]
+  (filter #(and (>= (:elo %) minimum) (< (:elo %) maximum)) population))
+
+(defn adjust-elo-scores-to-target
+  [individuals target-average]
+  (let [current-total (reduce + (map :elo individuals))
+        num-individuals (count individuals)
+        current-average (/ current-total num-individuals)
+        adjustment (- target-average current-average)]
+    (map (fn [individual]
+           (update individual :elo #(+ % adjustment)))
+         individuals)))
+
+
+
+
+; Stack utilities
 
 (defn push-to-stack
   "Pushes item onto stack in state, returning the resulting state.
@@ -257,7 +291,10 @@
         (push-to-stack new-state return-stack result)))))
 
 
-;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Instructions
 
 (defn in1
@@ -309,7 +346,7 @@
                   (if (> num1 num2)
                     true
                     false))]
-  (make-push-instruction state greater [:integer :integer] :boolean)))
+   (make-push-instruction state greater [:integer :integer] :boolean)))
 
 (defn integer_<
   [state]
@@ -335,6 +372,12 @@
 (defn boolean_or
   [state]
   (make-push-instruction state 'or [:boolean :boolean] :boolean))
+
+(defn boolean_not
+  [state]
+  (let [not-f (fn [a]
+                (not a))]
+   (make-push-instruction state not-f [:boolean] :boolean)))
 
 
 (defn check-board-position 
@@ -384,6 +427,12 @@
         (push-to-stack (pop-stack state :integer) :boolean false))
       (push-to-stack (pop-stack state :integer) :boolean false))))
 
+(defn check-win?
+  "Check for its own potential win???"
+  [state]
+  :STUB
+  )
+
 (defn exec_dup
   [state]
   (if (empty-stack? state :exec)
@@ -404,6 +453,33 @@
           (update new-state :exec #(rest %))))
     state))
 
+(defn exec_do*range
+  "idkekkk...
+   An iteration instruction that executes the top item on the EXEC stack a number of times that depends on the top two integers, while also pushing the loop counter onto the INTEGER stack for possible access during the execution of the body of the loop. This is similar to CODE.DO*COUNT except that it takes its code argument from the EXEC stack. The top integer is the 'destination index' and the second integer is the 'current index.' First the code and the integer arguments are saved locally and popped. Then the integers are compared. If the integers are equal then the current index is pushed onto the INTEGER stack and the code (which is the 'body' of the loop) is pushed onto the EXEC stack for subsequent execution. If the integers are not equal then the current index will still be pushed onto the INTEGER stack but two items will be pushed onto the EXEC stack -- first a recursive call to EXEC.DO*RANGE (with the same code and destination index, but with a current index that has been either incremented or decremented by 1 to be closer to the destination index) and then the body code. Note that the range is inclusive of both endpoints; a call with integer arguments 3 and 5 will cause its body to be executed 3 times, with the loop counter having the values 3, 4, and 5. Note also that one can specify a loop that 'counts down' by providing a destination index that is less than the specified current index."
+  [state])
+  
+
+(defn exec_do*range
+  [state]
+  (if (and
+       (not (empty-stack? state :integer))
+       (not (empty-stack? state :exec))
+       (> (count (state :integer)) 1))
+    (let [top-integer (peek-stack state :integer)
+          second-integer (peek-stack (pop-stack state :integer) :integer)
+          new-state (pop-stack (pop-stack state :integer) :integer)
+          top-exec (peek-stack state :exec)
+          new-state (pop-stack new-state :exec)
+          next-index (if (> second-integer top-integer) (dec second-integer) (inc second-integer))
+          updated-exec (if (= second-integer top-integer)
+                         '(top-exec)
+                         (list 'exec_do*range next-index top-integer 'top-exec))]
+      (-> new-state
+          (update :integer #(cons next-index %))
+          (update :exec #(cons updated-exec %))))
+    state))
+
+;; (interpret-one-step example-execdorange-state)
 ;; Interpreter
 
 (defn interpret-one-step
@@ -433,8 +509,8 @@
   newState is created by attaching program to :exec 
    (pushes program onto stack)
   and loops, interprets one step at a time until :exec stack is empty
-  or limit (100) over."
-  )
+  or limit (100) over.")
+  
 (defn interpret-push-program
   "Runs the given program starting with the stacks in start-state. Continues
   until the exec stack is empty. Returns the state of the stacks after the
@@ -511,20 +587,20 @@
         return-state (interpret-push-program program start-state)
         position (peek-stack return-state :integer) 
         new-board board]
-    (print-board new-board)
+    ;; (print-board new-board)
     ;; (println individ)
     (if (valid-move? board position)
       (do 
-        (print-board (add-move-to-board board position))
+        ;; (print-board (add-move-to-board board position))
         (add-move-to-board board position))
       false)))
 
 (defn play-game 
-  [board current other]
+  [board current other moves-played]
   (let [new-board (make-move current board)] 
     (cond
       (false? new-board) ;; Current player failed to make a valid move, other player wins
-      {:winner other :loser current :draw false}
+      {:winner other :loser current :draw false :win false}
 
       (check-win new-board) ;; Current player wins
       (do 
@@ -535,23 +611,27 @@
 
       ;; Check for draw
       (not-any? zero? new-board)
-      {:winner nil :loser nil :draw true}
+      {:winner nil :loser nil :draw true :win false}
 
       :else ;; Continue the game, switch players
-      (recur (inverse-board new-board) other current))))
+      (recur (inverse-board new-board) other current (inc moves-played)))))
 
 (defn compete-helper
   "Takes two individuals and they compete, returning them with updated elo-scores."
   [player1 player2]
-    (let [{:keys [winner loser draw win]} (play-game empty-board player1 player2)
-          result (cond
-                   draw 0
-                   (= winner player1) 1
-                   :else 2)
-          [new-rating1 new-rating2] (adjust-elo (:elo player1) (:elo player2) result)
-          updated-player1 (update-individ-elo player1 new-rating1)
-          updated-player2 (update-individ-elo player2 new-rating2)]
-      [updated-player1 updated-player2]))
+  (let [{:keys [winner loser draw win moves-played]} (play-game empty-board player1 player2 0)
+        result (cond
+                 draw 0
+                 (= winner player1) 1
+                 :else 2)
+        [new-rating1 new-rating2] (adjust-elo (:elo player1) (:elo player2) result)
+        ; 50 is a weird number. EXPERIMENT.
+        winner-rating1 (if (and (= winner player1) win) (+ new-rating1 50) new-rating1)
+        winner-rating2 (if (and (= winner player2) win) (+ new-rating2 50) new-rating2)
+        updated-player1 (update-individ-elo player1 winner-rating1)
+        updated-player2 (update-individ-elo player2 winner-rating2)]
+    [updated-player1 updated-player2]))
+
 
 (defn compete
   "Does it at chance"
@@ -583,8 +663,8 @@
     (let [remaining (rest updated-pop)]
       (if (empty? remaining)
         new-pop
-        (recur (compete-all (first remaining) remaining) (conj new-pop (first remaining)))))
-    ))
+        (recur (compete-all (first remaining) remaining) (conj new-pop (first remaining)))))))
+    
 
 (defn round-robin
   "Applies compete-all to each individual in the population. After each individual
@@ -600,13 +680,41 @@
         (recur rest-of-pop (conj new-population updated-individual))))))
 
 
-;; (defn conduct-scoring
-;;   "distributes by elo, and conducts scoring for everyone"
-;;   [population]
-;;   (let [new-pop population
-;;         ]))
+
+(defn divided-tournament 
+  "Splits into n ranges and round robin inside them"
+  [population n]
+  (let [{:keys [elo-pop-range minimum maximum]} (calculate-elo-pop-range population) 
+        margin (/ elo-pop-range n)]
+    (loop [new-pop '[]
+           current-start-elo minimum
+           index 0]
+      (if (= index (+ 1 n))
+        (do 
+          ;; (println "Current new-pop count" (count new-pop))
+          new-pop)
+        (do 
+          ;; (println "Divided Tournament " index new-pop)
+          ;; (println current-start-elo margin)
+          (recur (flatten (conj new-pop
+                              (round-robin
+                               (filter-by-elo-range population
+                                                    current-start-elo
+                                                    (+ current-start-elo margin)))))
+               (+ current-start-elo margin)
+               (inc index)))))))
 
 
+(defn evaluate-population 
+  "On gen 0 always round-robin. 
+   Generation start with 1. Frequency is in how many generation round-robin is conducted
+   For example, frquencey 50 means it's conducted at 0, 50, 100, etc."
+  [population frequency current-gen stratas]
+  (if (= (rem current-gen frequency) 0)
+    (round-robin population)
+    ; divide into ranges, conduct round robin on those ranges. 
+    (divided-tournament population stratas))) ; this value can be changed
+  
 
 (defn crossover
   "Crosses over two Plushy genomes (note: not individuals) using uniform crossover.
@@ -678,15 +786,13 @@
                       :elo parent1-elo))))
 
 
-
-
-
-
-
-
-
-
-
+(defn mutate-population 
+  "Population with evaluated elos should be passed"
+  [population instructions]
+  (loop [new-pop '()]
+    (if (not= (count new-pop) (count population)) 
+      (recur (conj new-pop (select-and-vary-elo-inherit population instructions)))
+      new-pop)))
 
 
 
@@ -756,17 +862,24 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
 
 (defn tic-tac-toe-push-gp
   "Let's see real quick how it does."
-  [{:keys [population-size max-generations instructions max-initial-plushy-size]
+  [{:keys [population-size max-generations instructions max-initial-plushy-size round-robin-frequency stratas]
     :as argmap}]
   (loop [population (initialize-population population-size max-initial-plushy-size) ; start pop
-         generation 1]
+         generation 0]
     (if (< generation max-generations)
       (do
         (println population)
-        (let [sorted-population (reverse (sort-by :elo (round-robin population))) ; sort pop from best to worst
-              new-child (select-and-vary-elo-inherit sorted-population instructions)] ; make a new child 
-          (println (first sorted-population) (nth sorted-population 1))
-          (recur (concat (butlast sorted-population) (list new-child))
+        (let [sorted-population (reverse (sort-by :elo (evaluate-population population
+                                                                            round-robin-frequency
+                                                                            generation
+                                                                            stratas))) ; sort pop from best to worst
+              new-pop (adjust-elo-scores-to-target (mutate-population sorted-population instructions) 1000)] ; make a new child 
+          (println "Best ones:" (first sorted-population) (nth sorted-population 1))
+          (println "Highest elo: "(:elo (first sorted-population)) ", worst elo:" (:elo (last sorted-population)))
+          (println "-----------------")
+          (println "Generation #" generation)
+          (println "-----------------")
+          (recur new-pop
                  (inc generation))))
       population)))
 
@@ -776,18 +889,38 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
   ([] (main {}))
   ([args]
    (tic-tac-toe-push-gp {:instructions default-instructions
-             :max-generations 200
-             :population-size 100
-             :max-initial-plushy-size 120})))
-
-(defn sum-elo [my-list]
-  (reduce #(+ %1 (get %2 :elo 0)) 0 my-list))
-
+                         :max-generations 10
+                         :population-size 10
+                         :max-initial-plushy-size 100
+                         :round-robin-frequency 5
+                         :stratas 5})))
 
 
-(def winners '({:genome (integer_% 5 in1 integer_+ boolean_= exec_dup integer_+ 3 1 integer_+ boolean_= 8 4 integer_% boolean_and exec_if integer_- 8 integer_% empty-square? integer_- boolean_and 4 close 0 integer_* 6 8 1 integer_- true 4 exec_if true 8 close integer_% 8 4 close in1 0 true 8 boolean_= 3 boolean_and empty-square? 8 3 7 boolean_= 8 empty-square? 0 exec_if enemy-square? 5 integer_* in1 integer_% 1 boolean_or true 8 integer_+ empty-square? 7 exec_dup exec_dup my-square? 4 boolean_or 8 exec_if true true 4 0), :elo 2113.67054830246} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? 4 5 9 3 exec_if 9 2 integer_- 5 4 boolean_or 5 integer_+ 1 integer_* true empty-square? boolean_= boolean_or true boolean_or empty-square? boolean_or true 7 integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 enemy-square? 2 0 false 7 exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true integer_% 5 my-square? boolean_= enemy-square? 4 3 integer_+ 7 2 7 boolean_or in1 boolean_or integer_+ 7 4 7 exec_dup exec_dup in1 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2064.2531027147515}))
+(def long-run2 (main))
+(def short-run2 (main))
 
-(def winners1 '({:genome (integer_% 5 in1 integer_+ boolean_= exec_dup integer_+ 3 1 integer_+ boolean_= 8 4 integer_% boolean_and exec_if integer_- 8 integer_% empty-square? integer_- boolean_and 4 close 0 integer_* 6 8 1 integer_- true 4 exec_if true 8 close integer_% 8 4 close in1 0 true 8 boolean_= 3 boolean_and empty-square? 8 3 7 boolean_= 8 empty-square? 0 exec_if enemy-square? 5 integer_* in1 integer_% 1 boolean_or true 8 integer_+ empty-square? 7 exec_dup exec_dup my-square? 4 boolean_or 8 exec_if true true 4 0), :elo 2273.1055868798308} {:genome (integer_- true 3 empty-square? enemy-square? close 1 integer_- in1 boolean_or boolean_= integer_* enemy-square? 2 boolean_and boolean_= 0 7 integer_% boolean_and in1 empty-square? boolean_or 1 0 4 0 1 integer_* enemy-square? 4 0 exec_if false false false integer_* integer_+ integer_+ in1 integer_% exec_dup 9 boolean_and integer_* my-square? false 2 7 integer_- integer_% close integer_* close 7 exec_dup 6 integer_+ boolean_and close 3 integer_* 0 integer_% 8 integer_- 9 false boolean_= integer_* 6 4 false close true enemy-square? integer_- 3 boolean_or exec_dup exec_dup integer_+ in1 9 empty-square? 0 2 integer_% boolean_= integer_+ exec_dup 3 exec_if boolean_and 0 2), :elo 1880.4719177966222}))
+
+;; (defn sum-elo [my-list]
+;;   (reduce #(+ %1 (get %2 :elo 0)) 0 my-list))
+
+;; (def hello (main))
+
+;; (sum-elo hello)
+
+;; (:elo (first (sort-by :elo hello)))
+
+;; (compete (first (reverse (sort-by :elo hello))) (last (reverse (sort-by :elo hello))))
+
+;; (def advanced (main))
+;; (compete (first (reverse (sort-by :elo advanced))) (last (reverse (sort-by :elo advanced))))
+
+;; (def today-long-run (main))
+
+(compete (first (reverse (sort-by :elo long-run2))) (second (reverse (sort-by :elo long-run2))))
+(def inds '({:genome (exec_dup my-square? integer_% 4 7 5 exec_if exec_if 5 boolean_and boolean_and exec_if 1 1 6 6 2 4 boolean_not 2 0 2 exec_if 5 boolean_= boolean_= my-square? exec_if exec_if 8 3 3 exec_if 6 exec_if 5 4 2 enemy-square? boolean_not 2 4 enemy-square? in1 integer_% integer_+ 7 8 5 8 8 integer_% exec_if 4 my-square? integer_= in1 boolean_and close integer_+ exec_dup integer_% boolean_or boolean_not exec_dup integer_< 3 boolean_= integer_* my-square? integer_> my-square? integer_- 9 integer_% true true integer_+ 4 integer_= boolean_and false exec_dup integer_- boolean_or boolean_or integer_< exec_dup integer_+ 8 5 6 4 6 integer_% integer_+ integer_> 9 close 4 empty-square? 1 0 7 integer_> true exec_dup 8 7 4 integer_+ 8 integer_* integer_+ boolean_= integer_< integer_< integer_* integer_+ 7 exec_dup boolean_not true integer_< 6 false close 4 integer_> enemy-square? boolean_= 6 6 5 boolean_or 8 5 0 boolean_not 7 6 2 in1 exec_dup integer_> 9 6 9 integer_- 9 boolean_not integer_< 5 in1 7), :elo 38170.14312884259} {:genome (exec_dup my-square? boolean_and 1 4 3 exec_if 3 true exec_dup integer_% 2 boolean_or exec_if integer_% exec_if my-square? empty-square? exec_if 8 1 exec_if true 0 integer_* false 2 enemy-square? 2 my-square? boolean_not true integer_- in1 8 integer_- my-square? 2 exec_if 6 boolean_or boolean_or integer_- exec_if 4 exec_if 7 2 3 5 4 3 2 boolean_and exec_if 6 enemy-square? 2 enemy-square? boolean_and boolean_and 5 enemy-square? boolean_or 2 2 9 7 integer_> 4 integer_+ integer_* integer_+ close integer_+ 6 my-square? boolean_or my-square? true close boolean_or integer_> empty-square? integer_> 6 8 boolean_= true 4 true integer_- exec_if integer_< integer_- integer_> 9 integer_> 0 integer_* integer_% exec_if exec_if enemy-square? 5 boolean_or 6 enemy-square? integer_= false 5 1 3 8 exec_if 0 integer_< boolean_= integer_= 5 enemy-square? boolean_not 9 integer_% empty-square? empty-square? 6 true 8 integer_= 3 enemy-square? false exec_dup close boolean_not close 9 6 in1 boolean_or exec_dup integer_+ 6 boolean_= 5 integer_< close 2 1 8 exec_if boolean_= 2 integer_< 1 boolean_or boolean_= integer_> false enemy-square? integer_< 8 8 boolean_and exec_dup integer_< close close 8 8 integer_> 8 integer_< integer_= boolean_or integer_= true 5 8 0 boolean_or 9 empty-square? integer_- 4 9 integer_> 2 boolean_= integer_% boolean_not boolean_= close boolean_not boolean_or empty-square?), :elo 38314.21094425386}))
+
+(compete (first inds) (second inds))
+;; (def today-long-run2 (main))
 
 (defn print-pop 
   [pop]
@@ -797,11 +930,7 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
      (do 
        (println (:elo (first pops)) "with index" index)
        (recur (rest pops) (inc index)))
-      "There they are, pussy babies.")))
-
-
-long-run
-(def long-run '({:genome (7 0 enemy-square? true 2 close empty-square? 7 enemy-square? integer_+ true in1 0 0 empty-square? boolean_and 2 enemy-square? 6 integer_% boolean_= in1 6 integer_- integer_% boolean_= enemy-square? false 5 boolean_and boolean_or integer_* boolean_= empty-square? 5 exec_if close 4 true 1 9 6 empty-square? false true my-square? integer_* enemy-square? 8 true 0 integer_% 0 integer_* exec_dup 6 true true 6 0 true 8 enemy-square? boolean_or 0 9 boolean_or integer_* 8 enemy-square? boolean_= 5 7 5 true 3 exec_dup 6 3 in1 boolean_and my-square? my-square? my-square? exec_if boolean_or 9 close 1 1 in1 2 5 3 integer_- 0 6 1 false boolean_or integer_+ 8 empty-square? false integer_- 3), :elo 2246.7613529173427} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? 4 5 9 3 exec_if boolean_= 9 2 integer_- 4 boolean_or 5 exec_if 1 enemy-square? integer_* true boolean_= 6 0 boolean_or empty-square? boolean_or true 7 my-square? integer_% integer_* 4 boolean_= 2 integer_- empty-square? 3 4 0 in1 enemy-square? 0 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= enemy-square? 4 false 3 enemy-square? integer_+ 8 7 2 exec_dup boolean_or boolean_or integer_+ 7 4 7 exec_dup exec_dup in1 0 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2227.4742555852467} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? boolean_or 5 9 3 exec_if 9 2 in1 integer_- 5 4 boolean_or 5 1 integer_* true boolean_= 6 empty-square? boolean_or empty-square? integer_+ boolean_or true true 7 my-square? integer_% 2 integer_- empty-square? 3 6 4 1 0 in1 enemy-square? 0 false exec_dup integer_* boolean_or enemy-square? integer_% true 5 my-square? boolean_= enemy-square? 4 3 enemy-square? 7 2 boolean_or boolean_or integer_+ 4 7 exec_dup exec_dup in1 close 3 integer_+ boolean_= enemy-square? close boolean_or), :elo 2183.1786843031527} {:genome (integer_% 5 in1 integer_+ boolean_= exec_dup integer_+ 3 1 integer_+ boolean_= 8 4 integer_% boolean_and exec_if integer_- 8 integer_% empty-square? integer_- boolean_and 4 close 0 integer_* 6 8 1 integer_- true 4 exec_if true 8 close integer_% 8 4 close in1 0 true 8 boolean_= 3 boolean_and empty-square? 8 3 7 boolean_= 8 empty-square? 0 exec_if enemy-square? 5 integer_* in1 integer_% 1 boolean_or true 8 integer_+ empty-square? 7 exec_dup exec_dup my-square? 4 boolean_or 8 exec_if true true 4 0), :elo 2178.0544062200183} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? boolean_or 4 5 9 3 exec_if 9 2 in1 integer_- 5 4 boolean_or 5 integer_+ 1 integer_* true boolean_= 6 empty-square? boolean_or empty-square? integer_+ boolean_or true true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 in1 enemy-square? 0 false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= boolean_or enemy-square? 4 3 enemy-square? integer_+ 7 2 boolean_or boolean_or integer_+ 7 4 7 7 exec_dup exec_dup in1 6 close 3 integer_+ boolean_= enemy-square? close boolean_or), :elo 2151.392297347261} {:genome (integer_% 5 in1 integer_+ boolean_= exec_dup integer_+ 3 1 boolean_= 8 exec_if 4 boolean_and exec_if integer_- 8 integer_% integer_- boolean_and 4 integer_- 0 integer_* 6 8 1 true 4 exec_if true 8 close integer_% 4 close in1 0 boolean_= my-square? 3 boolean_and 8 7 boolean_= 8 1 0 exec_if enemy-square? 5 boolean_and integer_* in1 integer_% 1 boolean_or true 8 integer_+ empty-square? 7 exec_dup my-square? 4 boolean_or in1 8 exec_if true true 4 0), :elo 2146.0635255040943} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? boolean_or 4 5 9 3 exec_if 9 2 in1 integer_- 5 4 boolean_or 5 integer_+ 1 integer_* true boolean_= 6 empty-square? boolean_or empty-square? boolean_or true true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 in1 enemy-square? 0 false 7 6 exec_if exec_dup integer_* integer_* boolean_or integer_% 3 true 5 my-square? boolean_= boolean_or enemy-square? 3 enemy-square? integer_+ 7 2 boolean_or boolean_or integer_+ 7 4 7 7 exec_dup exec_dup in1 6 close 3 integer_+ boolean_= enemy-square? close boolean_or), :elo 2120.013777589313} {:genome (integer_* 0 9 exec_if in1 exec_dup integer_% my-square? boolean_or 4 5 9 3 exec_if 9 integer_% 2 1 in1 integer_- 5 in1 4 boolean_or 5 integer_+ 1 integer_* true boolean_= 6 empty-square? boolean_or empty-square? integer_+ boolean_or true true 7 my-square? 8 integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 in1 enemy-square? 0 false 7 6 exec_if exec_dup integer_* integer_* 9 boolean_or enemy-square? integer_% 3 true 5 my-square? integer_- 5 boolean_= boolean_or enemy-square? 4 3 enemy-square? integer_+ 7 2 boolean_or boolean_or integer_+ 7 4 7 5 7 exec_dup 9 exec_dup in1 6 close 3 integer_+ boolean_= enemy-square? boolean_or close boolean_or), :elo 2094.6206710709434} {:genome (5 in1 integer_+ boolean_= exec_dup integer_+ 3 1 integer_+ boolean_= 8 4 integer_% boolean_and exec_if integer_- 8 integer_% empty-square? integer_- 4 close integer_* 6 8 1 integer_- true 4 exec_if true 8 close integer_% 8 4 close in1 0 true 8 boolean_= 3 boolean_and empty-square? 8 3 7 boolean_= 8 empty-square? 0 exec_if enemy-square? 5 integer_* in1 integer_% 1 boolean_or true 8 integer_+ empty-square? 7 exec_dup exec_dup my-square? 4 boolean_or 8 true true 0), :elo 2092.6986396413904} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? boolean_or 4 5 9 3 exec_if 9 2 in1 integer_- 5 4 5 integer_+ 1 integer_* boolean_= 6 empty-square? empty-square? boolean_or true true 7 my-square? integer_% integer_* 2 integer_- 3 6 4 1 0 in1 enemy-square? false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= enemy-square? 4 3 enemy-square? integer_+ 7 2 boolean_or boolean_or 7 4 7 7 exec_dup exec_dup in1 6 close 3 integer_+ boolean_= enemy-square? close boolean_or), :elo 2091.6701532175343} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? 4 5 9 3 exec_if 9 2 integer_- 4 boolean_or 5 1 integer_* true boolean_= 6 boolean_or empty-square? boolean_or true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 4 0 in1 enemy-square? 0 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= enemy-square? 4 3 enemy-square? integer_+ 7 2 boolean_or boolean_or integer_+ 7 4 7 exec_dup exec_dup in1 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2081.256571197323} {:genome (integer_% 5 in1 integer_+ boolean_= exec_dup integer_+ 3 1 integer_+ boolean_= 8 4 integer_% boolean_and exec_if integer_- 8 integer_% empty-square? integer_- boolean_and 4 close 0 integer_* 6 8 1 integer_- true 4 exec_if true 8 close integer_% 8 4 close in1 0 true 8 boolean_= 3 boolean_and empty-square? 8 3 7 boolean_= 8 empty-square? 0 exec_if enemy-square? 5 integer_* in1 integer_% 1 boolean_or true 8 integer_+ empty-square? 7 exec_dup exec_dup my-square? 4 boolean_or 8 exec_if true true 4 0), :elo 2068.365781258094} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? 4 5 9 3 exec_if 9 2 in1 integer_- 5 4 boolean_or 5 integer_+ 1 integer_* true boolean_= 6 boolean_or empty-square? boolean_or true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 in1 enemy-square? 0 false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= enemy-square? 4 3 enemy-square? integer_+ 7 2 boolean_or boolean_or integer_+ 7 4 7 7 exec_dup exec_dup in1 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2061.9537869402325} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? 4 5 9 3 exec_if 9 2 in1 integer_- 5 4 boolean_or 5 integer_+ 1 integer_* true empty-square? boolean_= 6 boolean_or true boolean_or empty-square? boolean_or true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 in1 enemy-square? 2 0 false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true integer_% 5 my-square? boolean_= enemy-square? 4 3 enemy-square? integer_+ 7 2 7 boolean_or in1 boolean_or integer_+ 7 4 7 7 exec_dup exec_dup in1 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2053.336910158867} {:genome (integer_* exec_if 0 9 exec_if 1 exec_dup integer_% my-square? 4 5 7 9 9 3 exec_if boolean_= 9 boolean_and 2 integer_- 4 boolean_or true 5 exec_if 1 enemy-square? 2 integer_* true integer_* boolean_= 6 0 boolean_or empty-square? integer_- boolean_or true integer_+ 7 my-square? integer_% integer_* 4 boolean_= 2 integer_- empty-square? 3 4 0 integer_- 0 in1 4 enemy-square? 0 7 6 exec_if boolean_and exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 7 5 my-square? boolean_= enemy-square? false 4 false 3 enemy-square? integer_+ boolean_and 8 7 2 exec_dup boolean_or boolean_or integer_+ 7 4 integer_% 7 8 exec_dup exec_dup in1 0 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2028.293658290693} {:genome (integer_* 0 9 exec_if 1 exec_dup integer_% my-square? 4 5 7 9 9 3 exec_if boolean_= 9 2 integer_- 4 boolean_or 5 exec_if 1 enemy-square? integer_* true integer_* boolean_= 6 0 boolean_or empty-square? integer_- boolean_or true integer_+ 7 my-square? integer_% integer_* 4 boolean_= 2 integer_- empty-square? 3 4 integer_- 0 in1 enemy-square? 0 7 6 exec_if boolean_and exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= enemy-square? false 4 false 3 enemy-square? integer_+ 8 7 2 exec_dup boolean_or boolean_or integer_+ 7 4 7 8 exec_dup exec_dup in1 0 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2016.5467475131459} {:genome (enemy-square? boolean_and true integer_- 8 boolean_or close integer_* integer_+ in1 close enemy-square? 4 integer_+ integer_% 5 exec_dup true boolean_and 1 exec_if 3 integer_+ integer_% 4 boolean_or 0 boolean_and integer_+ empty-square? exec_if integer_* my-square? exec_if my-square? integer_% empty-square? 3 integer_% empty-square? boolean_= 7 5 my-square?), :elo 2004.8049337397326} {:genome (exec_if empty-square? boolean_or boolean_or false boolean_and boolean_and false integer_% exec_if true 2 true 8 my-square? 4 boolean_or close enemy-square? my-square? enemy-square? 1 integer_+ true 6 5 5 integer_% integer_* enemy-square? exec_if 1 integer_+ close 2 2 false exec_dup true empty-square? my-square? 3 6 integer_% 1 integer_+ empty-square? integer_% empty-square? 2 8 1 in1 true in1 integer_* boolean_= exec_dup 6 integer_- exec_if 4 9 integer_% in1 0 boolean_and 6 9 in1 7 9 8 integer_% 6 2 integer_* 9 7 my-square? exec_if empty-square? integer_% in1 integer_* boolean_= boolean_= 2 my-square? 4 4 integer_+ true integer_+ boolean_or enemy-square? 3 true boolean_and in1 enemy-square? 2 in1 2 empty-square? boolean_and 3 4 integer_* in1 exec_dup 4 1), :elo 1982.2065909159871} {:genome (7 enemy-square? enemy-square? true 3 exec_if close 5 exec_dup true integer_- exec_if 4 integer_% 9 2 exec_if in1 6 integer_- integer_% 1 1 integer_+ exec_if 4 boolean_or in1 2 integer_% true 8 0 0 enemy-square? enemy-square? enemy-square? 5 exec_dup 6 integer_* 3 2 3 integer_+ 7 exec_if 3), :elo 1927.5516039810566} {:genome (integer_* 0 9 exec_if exec_dup integer_% 8 4 5 1 9 true 3 exec_if 9 2 exec_if in1 integer_- 5 4 boolean_or 5 close integer_+ integer_* true boolean_= 6 boolean_or empty-square? boolean_or true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 4 boolean_= 0 in1 enemy-square? 0 false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= 4 3 enemy-square? integer_+ 7 2 boolean_or integer_+ 7 4 7 true 7 exec_dup empty-square? exec_dup in1 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 1914.611086562444} {:genome (integer_+ 7 0 enemy-square? true 6 exec_if integer_% 0 integer_+ true exec_if in1 integer_* integer_% 8 1 exec_if in1 6 integer_- integer_% integer_+ false 1 boolean_and 9 boolean_= enemy-square? integer_+ 5 integer_% 4 my-square? 1 integer_- 6 false 6 5 integer_* integer_% 8 true 0 integer_% 0 integer_* enemy-square? 0 enemy-square? 5 7 1 5 exec_dup 6 3 in1 my-square? close my-square? exec_if boolean_or 9 1 2 integer_% 6 5 0 6 1 integer_- boolean_or integer_+ my-square? integer_- 3), :elo 1890.7247808194904} {:genome (7 0 enemy-square? true 6 exec_if integer_% 0 integer_+ true exec_if in1 integer_* integer_% 8 1 exec_if in1 6 integer_- integer_% integer_+ false 1 boolean_and 9 boolean_= integer_+ 5 integer_% 4 my-square? integer_- 6 false 6 5 integer_* integer_% 8 true 0 integer_% 0 integer_* enemy-square? 0 enemy-square? 5 7 5 exec_dup 6 3 in1 my-square? my-square? exec_if boolean_or 9 1 2 5 0 6 1 boolean_or integer_+ integer_- 3), :elo 1890.666649777724} {:genome (integer_- true 3 empty-square? enemy-square? close 1 integer_- in1 boolean_or boolean_= integer_* enemy-square? 2 boolean_and boolean_= 0 7 integer_% boolean_and in1 empty-square? boolean_or 4 0 1 integer_* enemy-square? 0 exec_if false false false integer_* integer_+ integer_+ in1 integer_% exec_dup 9 boolean_and integer_* my-square? false 2 7 integer_- integer_% close integer_* 7 exec_dup 6 integer_+ boolean_and close 3 integer_* 0 integer_% 8 integer_- 9 false boolean_= integer_* 6 4 false close true enemy-square? integer_- 3 boolean_or exec_dup exec_dup in1 9 empty-square? 0 2 integer_% boolean_= integer_+ exec_dup 3 exec_if boolean_and 0 2), :elo 1883.4378952052807} {:genome (7 0 enemy-square? true exec_dup exec_if 8 0 1 true 8 exec_if 4 boolean_and 9 2 exec_if in1 6 boolean_and integer_% integer_+ 0 close boolean_and integer_* 1 integer_+ 4 exec_if 4 boolean_or true 6 false 6 in1 2 integer_% 8 true 0 8 0 0 enemy-square? enemy-square? enemy-square? false enemy-square? 5 exec_dup 6 integer_* integer_* boolean_or my-square? integer_% 3 9 1 2 boolean_= my-square? 3 enemy-square? integer_+ 7 exec_if 3 6), :elo 1882.20528055114} {:genome (false integer_- exec_if true integer_- boolean_or 6 empty-square? 1 close integer_% integer_+ close integer_- exec_if 5 enemy-square? 8 5 8 4 false boolean_and boolean_or 0 false empty-square? true enemy-square? close 6 exec_dup integer_- 1 4 7 true integer_+ 9 2 exec_if exec_if 3 false 8 9 5 in1 boolean_= 7 exec_if integer_% empty-square? 3 2 empty-square? integer_- 9 boolean_and 4 2 6 5 1 2 enemy-square? integer_% true 1 integer_- close 6 4 7 9 8 8 3 false boolean_or 1 enemy-square? exec_if integer_+ 5), :elo 1879.4967946871054} {:genome (false integer_- exec_if close true integer_- boolean_or 6 empty-square? empty-square? 1 close integer_% integer_+ close in1 integer_- exec_if 5 enemy-square? 8 5 8 4 false boolean_and boolean_or 0 false empty-square? true enemy-square? close 6 exec_dup integer_- 1 4 7 true integer_+ 9 2 exec_if exec_if 3 false 8 9 5 in1 boolean_= 7 exec_if integer_% empty-square? 3 2 empty-square? integer_- 9 boolean_and 4 2 6 5 1 2 enemy-square? integer_% true 1 integer_- close 6 4 7 9 8 8 3 false boolean_or 1 enemy-square? enemy-square? exec_if integer_+ 5), :elo 1877.9709752915542} {:genome (7 0 enemy-square? true 6 exec_if integer_% 0 enemy-square? integer_+ true exec_if in1 0 integer_* integer_% 8 enemy-square? 1 exec_if enemy-square? in1 6 integer_- integer_% in1 integer_+ false 1 boolean_and integer_* 9 boolean_= integer_+ 5 exec_if integer_% 4 8 my-square? integer_- 6 false false 6 5 integer_* integer_% 8 true 0 integer_% 0 integer_* enemy-square? 0 enemy-square? 5 7 5 exec_dup 6 3 in1 my-square? my-square? exec_if boolean_or 9 1 1 2 5 0 6 1 boolean_or integer_+ integer_- 3), :elo 1874.1484508758697} {:genome (integer_- true 3 empty-square? enemy-square? close 1 integer_- in1 boolean_or boolean_= integer_* enemy-square? 2 boolean_and boolean_= 0 7 integer_% boolean_and in1 empty-square? boolean_or 1 0 4 0 1 integer_* enemy-square? 4 0 exec_if false false false integer_* integer_+ integer_+ in1 integer_% exec_dup 9 boolean_and integer_* my-square? false 2 7 integer_- integer_% close integer_* close 7 exec_dup 6 integer_+ boolean_and close 3 integer_* 0 integer_% 8 integer_- 9 false boolean_= integer_* 6 4 false close true enemy-square? integer_- 3 boolean_or exec_dup exec_dup integer_+ in1 9 empty-square? 0 2 integer_% boolean_= integer_+ exec_dup 3 exec_if boolean_and 0 2), :elo 1869.8436801960006} {:genome (false exec_if true integer_- 6 empty-square? 1 close integer_% integer_+ exec_if 5 enemy-square? 8 8 4 false boolean_and boolean_or 9 empty-square? true enemy-square? close exec_dup integer_- 3 4 7 true integer_+ 9 2 exec_if 3 false 8 5 in1 9 boolean_= 7 exec_if integer_% empty-square? 3 2 empty-square? 9 4 2 5 1 enemy-square? 2 true 1 6 4 7 9 8 8 3 false boolean_or 1 enemy-square? integer_+ 5), :elo 1868.4472565106814} {:genome (7 0 3 exec_dup exec_if 7 7 enemy-square? integer_+ 2 exec_if 0 empty-square? my-square? boolean_and integer_% boolean_and boolean_or in1 6 enemy-square? 5 boolean_= false 5 5 exec_dup integer_* 0 integer_* exec_if 8 my-square? 4 true 1 5 6 integer_+ false integer_% exec_if 1 1 8 integer_* 0 integer_% 0 2 exec_dup 6 integer_% 4 6 true 8 boolean_or boolean_or 8 boolean_= 7 true 3 my-square? 9 1 2 5 3 0 8 empty-square? 3), :elo 1857.5683295403608} {:genome (enemy-square? boolean_and true integer_- 8 boolean_or close integer_* integer_+ in1 close enemy-square? 4 integer_+ integer_% 5 exec_dup true boolean_and 1 exec_if 3 integer_+ integer_% boolean_or 0 boolean_and integer_+ empty-square? exec_if integer_* my-square? my-square? integer_% empty-square? 3 integer_% empty-square? boolean_= 7 5 my-square?), :elo 1854.9672868697073} {:genome (3 integer_* boolean_and 1 integer_- boolean_or exec_if 4 empty-square? 0 2 1 true true enemy-square? my-square? in1 enemy-square? 0 integer_% exec_if enemy-square? 9 integer_% 5 false exec_if 0 exec_if 3 empty-square? 8 exec_if), :elo 1849.040000895141} {:genome (integer_- true 3 empty-square? enemy-square? close 1 integer_- in1 boolean_or boolean_= integer_* enemy-square? 2 boolean_and boolean_= 0 7 integer_% boolean_and in1 empty-square? boolean_or 1 0 4 0 1 integer_* enemy-square? 4 0 exec_if false false false integer_* integer_+ integer_+ in1 integer_% exec_dup 9 boolean_and integer_* my-square? false 2 7 integer_- integer_% close integer_* close 7 exec_dup 6 integer_+ boolean_and close 3 integer_* 0 integer_% 8 integer_- 9 false boolean_= integer_* 6 4 false close true enemy-square? integer_- 3 boolean_or exec_dup exec_dup integer_+ in1 9 empty-square? 0 2 integer_% boolean_= integer_+ exec_dup 3 exec_if boolean_and 0 2), :elo 1844.1715713317467} {:genome (8 integer_* in1 integer_* 0 empty-square? exec_if boolean_= integer_+ true integer_+ my-square? 6), :elo 1842.2276263659712} {:genome (in1 enemy-square? 6 enemy-square? 3 empty-square? close 5 exec_dup 5 integer_- in1 6 integer_% integer_+ 2 exec_if empty-square? in1 integer_- empty-square? 1), :elo 1841.8193281006302} {:genome (integer_+ boolean_= exec_if exec_if integer_- boolean_or 6 empty-square? 2 close 8 integer_+ close integer_- enemy-square? integer_+ integer_+ 4 8 false my-square? 0 close 6 integer_- 1 3 integer_+ 2 exec_if exec_if 3 8 5 9 7 exec_if empty-square? 3 2 empty-square? 2 6 2 true close 4 7 9 8 8 8 boolean_or enemy-square? exec_if 5), :elo 1838.7500746179667} {:genome (boolean_and 9 6 6 9 true 4 boolean_or 4 true 9 integer_+ 0 exec_if integer_+ 1 enemy-square? close 4 6 2 integer_* false close my-square? 2 3 exec_dup integer_- empty-square? in1 exec_if 8 exec_dup), :elo 1838.0699025887156} {:genome (4 8 false 3 2 exec_dup false 3 6 integer_+ enemy-square? integer_% empty-square? integer_* 6 in1 true false 8 true 3 boolean_or exec_if exec_if 1 boolean_and integer_% my-square? boolean_= true 6 integer_+ empty-square? close 3 boolean_or empty-square? true integer_* 6 1 boolean_or integer_+ 5 1 7 exec_dup in1 false 1 enemy-square? close integer_+ integer_- my-square? 5 true true 8 6 close my-square? boolean_= 7 my-square? integer_+ 6 exec_dup integer_* boolean_= integer_* enemy-square? 8 close 4 exec_dup integer_* exec_if true boolean_= integer_* boolean_and 8 5 6 integer_+ 4 2 in1 integer_+ boolean_or 2 3 2 boolean_or 7 boolean_and true enemy-square? integer_% in1 empty-square? close 3 6 boolean_= exec_dup my-square?), :elo 1837.6096732788085} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? boolean_or 5 9 3 9 2 in1 integer_- 4 boolean_or 5 1 integer_* true boolean_= 6 empty-square? boolean_or empty-square? integer_+ boolean_or true true 7 integer_% 2 integer_- empty-square? 3 6 4 1 0 in1 enemy-square? 0 false exec_dup integer_* boolean_or enemy-square? integer_% true 5 my-square? boolean_= enemy-square? 4 3 enemy-square? 7 2 boolean_or boolean_or integer_+ 4 7 exec_dup exec_dup close 3 integer_+ boolean_= enemy-square? close boolean_or), :elo 1834.6192913229129} {:genome (false exec_if true integer_- 6 empty-square? 1 close integer_% integer_+ exec_if 5 enemy-square? 8 8 4 false boolean_and boolean_or 9 empty-square? close exec_dup integer_- 3 4 7 true integer_+ 9 2 exec_if 3 false 8 9 boolean_= 7 exec_if integer_% empty-square? 3 2 empty-square? 9 4 2 5 1 enemy-square? 2 true 1 6 4 7 9 8 8 3 false boolean_or 1 enemy-square? integer_+ 5), :elo 1833.9220626869535} {:genome (exec_dup integer_+ integer_* 3 boolean_= boolean_and integer_% 7 integer_+ 9 4 7 boolean_or boolean_or 1 4 integer_+ 3 exec_if 5 8 7 boolean_and integer_% 2 my-square? exec_if 1 false my-square? my-square? empty-square? enemy-square? boolean_or true exec_if 2 1 false 1 close integer_+ false 6 3 6 false my-square? boolean_= boolean_and integer_- 2 exec_dup false), :elo 1831.3368988498896} {:genome (false integer_- exec_if true integer_- 6 empty-square? 1 4 close integer_% integer_+ close exec_if 5 enemy-square? 8 5 8 4 false boolean_and boolean_or 0 false 9 empty-square? true enemy-square? 0 close exec_dup integer_- 3 4 7 true integer_+ 9 2 exec_if exec_if 3 false 8 9 5 in1 9 boolean_= 7 exec_if integer_% empty-square? 3 2 9 empty-square? 9 boolean_and 4 2 5 1 empty-square? enemy-square? integer_% 2 integer_% true 9 1 integer_- close 6 4 7 9 8 8 8 3 false boolean_or 1 enemy-square? integer_+ 5), :elo 1829.9590607741363} {:genome (integer_- true 3 empty-square? enemy-square? close 1 integer_- in1 boolean_or boolean_= integer_* enemy-square? 2 boolean_and boolean_= 0 7 integer_% boolean_and in1 empty-square? boolean_or 1 0 4 0 1 integer_* enemy-square? 4 4 exec_if 0 exec_if false false false integer_+ integer_* integer_+ integer_+ in1 integer_% exec_dup 9 boolean_and integer_* my-square? false 2 7 integer_- integer_% close integer_* close 7 exec_dup 6 integer_+ boolean_and close 3 integer_* 0 integer_% 8 integer_- 9 false boolean_= integer_* 6 4 false close exec_if true enemy-square? my-square? integer_- 3 3 boolean_or exec_dup exec_dup integer_+ in1 9 empty-square? 0 2 integer_% boolean_= integer_+ exec_dup 2 3 exec_if boolean_and 0 2), :elo 1829.4577849686946} {:genome (integer_% close 3 exec_dup 3 exec_if 7 enemy-square? 5 boolean_and 2 exec_if false empty-square? my-square? false integer_% 3 boolean_and 0 boolean_or exec_if 6 enemy-square? 5 5 boolean_= my-square? 1 5 exec_dup my-square? 0 integer_* exec_if 8 my-square? boolean_and 9 integer_- 5 boolean_= integer_+ my-square? integer_% exec_if 1 1 empty-square? integer_* integer_% 0 boolean_or 2 exec_dup 5 integer_% 4), :elo 1811.7721813880316} {:genome (false 5 in1 integer_+ integer_- exec_dup 6 3 1 integer_+ boolean_= 4 integer_% integer_- exec_if 5 8 8 empty-square? 8 4 false boolean_and boolean_or 0 false 8 true enemy-square? true 4 exec_if true 1 4 8 4 close in1 0 true exec_if boolean_= false 8 8 3 in1 boolean_= 7 empty-square? integer_% empty-square? 5 integer_* empty-square? integer_% boolean_or true 4 integer_+ empty-square? 7 1 exec_dup enemy-square? integer_% true 8 exec_if true 6 4 0 8 3 false boolean_or integer_+ 5), :elo 1811.7389598455622} {:genome (false integer_- exec_if integer_+ integer_- exec_dup 6 3 1 close 8 4 integer_+ close integer_- 8 5 enemy-square? 8 5 8 4 false boolean_and 1 boolean_or 4 false true 8 true integer_% enemy-square? close in1 0 boolean_= 1 4 8 true boolean_= enemy-square? 0 exec_if enemy-square? exec_if integer_* in1 integer_% 9 boolean_or true 8 7 exec_if 7 exec_dup my-square? 4 boolean_or integer_- 9 boolean_and 4 4 0 5 0 4 enemy-square? true 1 integer_- close 7 8 false enemy-square? exec_if integer_+), :elo 1811.1306860160669} {:genome (enemy-square? boolean_and true integer_+ 8 boolean_or integer_+ 3 1 integer_+ boolean_= 8 4 integer_% integer_% 5 integer_- true integer_% 1 integer_- boolean_and 4 integer_% boolean_or integer_* 6 8 1 exec_if integer_* my-square? exec_if integer_% empty-square? 3 integer_% 8 boolean_= 7 in1 my-square? 8 boolean_= empty-square? 8 8 0 enemy-square? in1 integer_% boolean_or true 8 empty-square? exec_dup my-square? true 4), :elo 1811.1056613124324} {:genome (false integer_- exec_if true integer_- 6 empty-square? 1 4 close integer_% integer_+ close exec_if 5 enemy-square? 8 5 8 4 enemy-square? false boolean_and boolean_or 0 false 9 empty-square? true enemy-square? 0 close exec_dup integer_- 3 4 2 7 true integer_+ 9 2 exec_if exec_if 2 3 false 8 9 5 in1 9 boolean_= 7 exec_if integer_% empty-square? 3 2 9 empty-square? 9 my-square? boolean_and 4 2 5 1 empty-square? enemy-square? integer_% 2 integer_% true false 9 1 integer_- boolean_or close 6 4 7 9 8 8 8 3 false boolean_or 1 enemy-square? integer_+ boolean_or 5), :elo 1810.4195538625459} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? 4 5 9 3 9 2 in1 integer_- 5 4 boolean_or 5 integer_+ 1 integer_* true boolean_= 6 boolean_or empty-square? true 7 my-square? integer_% 2 empty-square? 3 6 1 0 in1 enemy-square? false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= enemy-square? 4 3 enemy-square? integer_+ 7 2 boolean_or boolean_or integer_+ 7 4 7 exec_dup in1 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 1807.9756604693544} {:genome (exec_if empty-square? boolean_or boolean_or false boolean_and boolean_and false integer_% exec_if true 2 true 8 my-square? 4 boolean_or close enemy-square? my-square? enemy-square? 1 integer_+ true 5 integer_% integer_* enemy-square? exec_if 1 integer_+ close 2 2 false exec_dup true empty-square? my-square? 3 6 integer_% 1 integer_+ empty-square? integer_% empty-square? 2 8 1 in1 true integer_* boolean_= exec_dup 6 integer_- exec_if 4 9 integer_% in1 0 6 9 in1 7 9 8 integer_% 6 2 integer_* 9 7 my-square? exec_if empty-square? integer_% in1 integer_* boolean_= boolean_= 2 my-square? 4 4 integer_+ true integer_+ enemy-square? 3 boolean_and in1 enemy-square? 2 in1 2 empty-square? boolean_and 3 4 integer_* in1 exec_dup 4 1), :elo 1804.489720325213} {:genome (false integer_- exec_if true integer_- boolean_or 6 empty-square? 1 close integer_% integer_+ close integer_- exec_if 5 enemy-square? 8 5 8 4 false my-square? boolean_and boolean_or 0 false 9 empty-square? true enemy-square? close 6 exec_dup integer_- 1 3 4 7 true integer_+ 9 2 exec_if exec_if 3 false 8 9 5 in1 9 boolean_= 7 exec_if integer_% empty-square? 3 2 9 empty-square? integer_- 9 boolean_and 4 2 6 5 1 2 enemy-square? integer_% 2 true 1 integer_- close 6 4 7 9 8 8 8 3 false boolean_or 1 enemy-square? exec_if integer_+ 5), :elo 1796.3552832198554} {:genome (integer_% 5 in1 integer_+ boolean_= boolean_= exec_dup integer_+ 3 1 boolean_= 8 exec_if 4 boolean_and exec_if integer_- 8 integer_% integer_- integer_- boolean_and 4 integer_- 0 integer_* 6 8 1 true 9 4 exec_if true 8 close integer_% 4 close in1 0 boolean_= my-square? 3 boolean_and 8 7 boolean_= 8 1 1 0 boolean_or exec_if enemy-square? 5 boolean_and integer_* in1 integer_% 1 boolean_or true 8 boolean_or integer_+ empty-square? 7 exec_dup my-square? exec_dup 4 0 boolean_or in1 8 exec_if true true exec_if 4 0), :elo 1795.3784285413446} {:genome (in1 enemy-square? enemy-square? true 3 exec_if integer_% 5 integer_+ true integer_- in1 integer_* integer_% integer_+ 2 exec_if empty-square? in1 integer_- empty-square? 1 false 9 integer_% integer_- false 5 integer_% 8 true 0 0 0 6 3 my-square? 2 0 6 1 boolean_or), :elo 1787.9805392521862} {:genome (5 in1 integer_+ exec_if exec_dup integer_% 3 8 4 5 1 4 integer_% 3 exec_if 9 8 exec_if in1 0 integer_- close integer_* 6 5 close integer_+ integer_* true exec_if 6 8 close empty-square? 8 4 true in1 my-square? integer_% integer_* 2 3 boolean_and empty-square? 6 3 7 boolean_= 0 empty-square? 0 exec_if enemy-square? 5 6 exec_if exec_dup 1 integer_* integer_* 8 integer_+ integer_% 3 exec_dup exec_dup my-square? 4 boolean_= 8 3 enemy-square? 0 7 boolean_or 4 exec_dup close enemy-square? close true), :elo 1787.7881987779704} {:genome (7 0 enemy-square? true boolean_and 8 empty-square? 7 6 boolean_and 2 in1 boolean_= 0 empty-square? boolean_or 2 7 6 integer_% boolean_= boolean_= exec_if integer_- exec_if my-square? boolean_or empty-square? 5 boolean_and integer_- exec_dup integer_% boolean_= 5 enemy-square? close close 1 in1 9 6 2 7 enemy-square? integer_- exec_if enemy-square? exec_dup exec_dup empty-square? integer_* 5 integer_* exec_dup 6 integer_% 2 boolean_and 6 true boolean_= enemy-square? true 0 9 boolean_or integer_% close enemy-square? boolean_= integer_% integer_* 5 true 3 close 6 3 boolean_and boolean_and 2 my-square? 2 2 boolean_or 9 close 1 1 in1 integer_- 5 integer_- 7 enemy-square? exec_dup boolean_= integer_- boolean_or integer_+ 8 empty-square? in1 integer_- close), :elo 1787.4611286124245} {:genome (integer_* 0 9 exec_if exec_dup integer_% 4 5 9 exec_if 9 2 in1 integer_- 5 4 boolean_or 5 integer_+ 1 empty-square? boolean_= 6 boolean_or true boolean_or boolean_or 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 in1 2 0 false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 integer_% 5 my-square? boolean_= enemy-square? 4 3 enemy-square? integer_+ 7 2 7 boolean_or in1 boolean_or integer_+ 7 4 7 exec_dup exec_dup in1 close integer_+ boolean_= enemy-square? close boolean_or), :elo 1786.9619528760302} {:genome (5 in1 integer_+ boolean_= exec_dup 3 1 boolean_= 8 4 exec_if integer_- integer_- 4 integer_- 0 integer_* 6 8 1 true 4 exec_if true close integer_% 4 in1 0 boolean_= my-square? 3 boolean_and 8 7 boolean_= 8 1 0 exec_if enemy-square? 5 boolean_and integer_* integer_% 1 boolean_or true 8 empty-square? 7 exec_dup my-square? 4 boolean_or in1 8 exec_if true true 4 0), :elo 1786.3525062882368} {:genome (5 5 7 1 integer_* 6 3 boolean_and in1 boolean_= 7), :elo 1784.536497168975} {:genome (4 boolean_or 8 4 6 exec_if integer_% 0 integer_* 5 exec_dup exec_if in1 integer_* integer_* integer_% 8 boolean_and 1 exec_if enemy-square? 4 exec_if in1 integer_% in1 integer_+ integer_- 1 boolean_or integer_* 9 integer_- integer_+ integer_* 9 integer_% integer_% 8 my-square? integer_- 8 false 7 6 5 true integer_% boolean_and 2 integer_+), :elo 1783.7308777228527} {:genome (5 my-square? enemy-square? integer_+ boolean_= boolean_or empty-square? 3 1 boolean_= true in1 true 8 empty-square? boolean_and exec_if 7 integer_- 8 3 integer_% integer_- boolean_and 4 0 integer_* enemy-square? 6 empty-square? 5 integer_* boolean_and empty-square? 5 true 8 boolean_and false 4 close in1 integer_* boolean_= 3 boolean_and 4 1 exec_dup integer_% boolean_= integer_% 0 integer_* enemy-square? 5 integer_* 3 integer_% true 1 boolean_or 6 false 0 integer_+ 0 integer_* 9 exec_dup my-square? 4 9 5 true true exec_dup true 3 0 enemy-square? 0 my-square? exec_if 2 0 false integer_- empty-square? boolean_and exec_dup integer_* boolean_or), :elo 1779.7902324896343} {:genome (4 8 false 3 2 exec_dup false 3 6 integer_+ enemy-square? integer_% empty-square? integer_* 6 in1 true false 8 true 3 boolean_or exec_if exec_if 1 boolean_and integer_% my-square? boolean_= true 6 integer_+ empty-square? close 3 boolean_or empty-square? true integer_* 6 1 boolean_or integer_+ 5 1 7 exec_dup in1 false 1 enemy-square? close integer_+ integer_- my-square? 5 true true 8 6 close my-square? boolean_= 7 my-square? integer_+ 6 exec_dup integer_* boolean_= integer_* enemy-square? 8 close 4 exec_dup integer_* exec_if true boolean_= integer_* boolean_and 8 5 6 integer_+ 4 2 in1 integer_+ boolean_or 2 3 2 boolean_or 7 boolean_and true enemy-square? integer_% in1 empty-square? close 3 6 boolean_= exec_dup my-square?), :elo 1779.1347103891762} {:genome (integer_+ 8 2 my-square? integer_+ integer_- boolean_= exec_if in1 false 0 integer_* exec_dup true integer_% exec_if 1 true boolean_=), :elo 1778.985295433599} {:genome (integer_* 0 9 exec_if exec_dup integer_% 4 5 9 3 exec_if 9 2 in1 integer_- 5 4 boolean_or 5 integer_+ integer_* true boolean_= 6 boolean_or empty-square? boolean_or true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 4 0 in1 enemy-square? 0 false 7 6 exec_if exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_= 4 3 enemy-square? integer_+ 7 2 boolean_or integer_+ 7 4 7 7 exec_dup exec_dup in1 6 close integer_+ boolean_= enemy-square? close boolean_or), :elo 1774.0042705978235} {:genome (integer_+ boolean_= 7 exec_if integer_- 2 empty-square? 2 empty-square? 2 false 8 close boolean_and boolean_= 3 enemy-square? integer_+ integer_+ 4), :elo 1769.6457773292846} {:genome (6 empty-square? 8 enemy-square? boolean_and true boolean_= boolean_= true 9 exec_dup 5 9 in1 8 boolean_= 3 0 true integer_+ 6 close 6 false 0 my-square? boolean_= exec_dup boolean_and integer_% 9 0 5 6 close integer_* true close 6 exec_if 8 boolean_or integer_- 7 0 my-square? boolean_and boolean_or 1 close 4 5 integer_% boolean_and integer_+), :elo 1769.0223464334397} {:genome (integer_* 0 9 exec_if exec_dup integer_% integer_+ 8 4 5 1 9 true 3 exec_if 9 2 exec_if in1 0 integer_- 5 4 boolean_or 5 close integer_+ integer_* true boolean_= 6 boolean_or integer_% empty-square? boolean_or false true 7 my-square? integer_% integer_* 2 integer_- empty-square? 3 6 enemy-square? 4 boolean_= 0 in1 enemy-square? 0 false 7 6 exec_if exec_dup 8 integer_* integer_* boolean_or enemy-square? integer_% 3 true 5 my-square? boolean_or boolean_= 4 3 enemy-square? integer_+ 7 2 boolean_or boolean_and integer_+ 7 4 7 true 7 exec_dup empty-square? exec_dup in1 6 close integer_+ boolean_= enemy-square? close boolean_or true), :elo 1766.4411074154032} {:genome (8 integer_* integer_* 0 empty-square? exec_if boolean_= integer_+ true integer_+ my-square? 6), :elo 1766.439492729688} {:genome (8 empty-square? 5 exec_if close boolean_or boolean_= integer_- boolean_= 5 close exec_if exec_dup boolean_or exec_dup), :elo 1764.5186756577446} {:genome (false exec_if true integer_- 6 empty-square? close integer_% integer_+ exec_if 5 enemy-square? 8 8 4 false boolean_and boolean_or 9 close integer_- 4 7 true integer_+ 2 exec_if 3 false 8 9 boolean_= 7 exec_if integer_% empty-square? 3 2 empty-square? 9 4 2 5 1 enemy-square? 2 true 1 6 4 9 8 8 3 false boolean_or 1 enemy-square? integer_+ 5), :elo 1757.4738366011604} {:genome (3 integer_* 9 exec_if exec_dup boolean_or exec_if 4 empty-square? 9 1 exec_if 1 true true integer_- enemy-square? boolean_or 5 exec_if enemy-square? 0 integer_% exec_if boolean_= 6 0 boolean_or empty-square? boolean_or true 0 exec_if integer_% integer_* 4 boolean_= empty-square? 4 in1 0 7 exec_dup boolean_or enemy-square? integer_% 3 5 my-square? boolean_= enemy-square? 4 3 enemy-square? 8 7 2 exec_dup 7 4 0 close enemy-square? boolean_or), :elo 1757.4004542080017} {:genome (4 boolean_and false 3 2 boolean_or false 3 6 integer_+ enemy-square? enemy-square? 4 integer_+ integer_% in1 exec_dup true 8 1 exec_if boolean_or exec_if exec_if 1 boolean_or integer_% my-square? boolean_= empty-square? 6 integer_+ my-square? exec_if 3 boolean_or empty-square? 3 integer_* empty-square? 1 7 integer_+ 5 exec_dup 1 close true true close my-square? boolean_= 7 my-square? 6 exec_dup integer_* close exec_dup integer_* exec_if true integer_* boolean_and 5 6 integer_+ integer_+ boolean_or 3 true integer_% in1 boolean_= my-square?), :elo 1755.934162078966} {:genome (enemy-square? boolean_and integer_- 8 boolean_or close integer_* integer_+ in1 close enemy-square? 4 integer_+ integer_% 5 exec_dup true boolean_and 1 exec_if 3 integer_+ integer_% 4 boolean_or 0 integer_+ exec_if integer_* my-square? exec_if my-square? integer_% empty-square? 3 integer_% empty-square? boolean_= 7 5 my-square?), :elo 1753.0044760583148} {:genome (exec_dup integer_+ integer_* 3 boolean_= boolean_and integer_% 7 empty-square? integer_+ integer_- 9 4 7 boolean_or boolean_or 1 4 boolean_and integer_+ 3 4 exec_if 2 5 8 7 boolean_and integer_% 2 my-square? exec_if 1 false my-square? my-square? empty-square? enemy-square? boolean_or true exec_if 2 1 false 1 close 6 integer_+ false 6 3 6 close false my-square? boolean_= in1 boolean_and integer_- 2 exec_dup false), :elo 1748.9849290478899} {:genome (6 boolean_and true integer_- 8 8 5 my-square? integer_+ in1 close in1 4 my-square? empty-square? integer_% 5 false 7 boolean_and 1 exec_if boolean_= integer_+ integer_% 4 my-square? boolean_or empty-square? integer_+ empty-square? exec_if exec_dup my-square? exec_if my-square? integer_% in1 empty-square? 3 1 empty-square? boolean_= 7 2 my-square? false empty-square? integer_* 1 5 false integer_% boolean_and 8 integer_% close enemy-square? 2 2 1 5 7 boolean_= close), :elo 1747.0884750773453} {:genome (1 my-square? in1 boolean_and boolean_or true true exec_if integer_+ my-square? boolean_or in1 8 5 exec_if empty-square? 6 6 integer_+ false exec_dup 9 8 integer_- 4 3 close integer_% my-square? 9 integer_- 4 boolean_= 3 integer_- 8 integer_+ enemy-square? true exec_dup empty-square? 0 boolean_and 8 boolean_= false exec_dup 5 9 boolean_or exec_dup empty-square? integer_% boolean_= boolean_= enemy-square? 9 7 boolean_= boolean_or enemy-square? 8 in1 boolean_and integer_+ boolean_and integer_- 9 my-square? integer_+ true 9 true empty-square? 6 boolean_= 9 my-square? in1 1 8 2), :elo 1746.660616773165} {:genome (false integer_- exec_if integer_+ integer_- exec_dup 6 3 1 close 8 integer_+ integer_- 8 5 enemy-square? 8 5 8 4 false boolean_or 4 true 8 true integer_% enemy-square? close in1 0 boolean_= 1 4 8 true boolean_= enemy-square? 0 exec_if enemy-square? exec_if integer_* in1 integer_% 9 true 8 7 exec_if 7 exec_dup my-square? 4 boolean_or integer_- 9 boolean_and 4 4 0 5 0 enemy-square? true 1 integer_- close 8 false enemy-square? exec_if integer_+), :elo 1742.7992349845672} {:genome (integer_* 0 9 integer_+ exec_dup exec_dup 8 3 1 1 8 exec_if 4 boolean_and 9 2 8 in1 integer_- boolean_and 4 boolean_or 0 close 6 integer_* 1 boolean_= 4 exec_if true boolean_or true integer_% my-square? integer_% in1 2 boolean_= my-square? 3 boolean_and 8 boolean_= 0 in1 enemy-square? 0 false enemy-square? 5 exec_if exec_dup integer_* integer_* boolean_or boolean_or integer_% 3 true empty-square? 7 boolean_= my-square? 3 enemy-square? integer_+ 7 exec_if true true 4 4 7 7 exec_dup in1 6 close boolean_=), :elo 1741.8876379344488} {:genome (false integer_- exec_if true integer_- 6 empty-square? 1 close integer_% integer_+ close exec_if 5 enemy-square? 8 5 8 4 false boolean_and boolean_or 0 false 9 empty-square? true enemy-square? close exec_dup integer_- 3 4 7 true integer_+ 9 2 exec_if exec_if 3 false 8 9 5 in1 9 boolean_= 7 exec_if integer_% empty-square? 3 2 9 empty-square? 9 boolean_and 4 2 5 1 enemy-square? integer_% 2 true 1 integer_- close 6 4 7 9 8 8 8 3 false boolean_or 1 enemy-square? integer_+ 5), :elo 1741.7366434492037} {:genome (7 6 enemy-square? true 6 integer_- 9 boolean_or my-square? integer_+ exec_if in1 0 integer_% 8 1 exec_if in1 6 integer_- boolean_= integer_+ false 1 1 9 boolean_= integer_+ 5 integer_% 4 my-square? 9 close false 9 5 boolean_and integer_% 8 2 0 integer_% 9 integer_* enemy-square? 0 8 exec_dup 7 5 enemy-square? 6 3 in1 integer_* my-square? exec_if boolean_or 3 1 2 5 0 6 9 boolean_or integer_+ enemy-square? exec_dup enemy-square?), :elo 1739.8016257265988} {:genome (5 boolean_= 1 7 enemy-square? 7 exec_if 5 false enemy-square? empty-square? 9 enemy-square? 8 close boolean_or), :elo 1735.9825309545606} {:genome (integer_* 0 9 exec_if exec_dup integer_% integer_+ 8 4 5 1 9 true 3 2 9 integer_- 5 4 boolean_or 5 5 4 boolean_or 5 boolean_= integer_+ integer_* true empty-square? integer_+ boolean_or integer_% true 7 false integer_% 7 my-square? integer_% integer_* 2 6 4 3 0 enemy-square? 4 0 0 in1 enemy-square? exec_if exec_dup integer_* 6 boolean_or enemy-square? integer_% integer_* true boolean_or enemy-square? boolean_= 3 true 4 my-square? enemy-square? boolean_= 4 3 enemy-square? integer_+ integer_+ 7 4 7 7 exec_dup 4 7 true close exec_dup empty-square? boolean_= in1 close close integer_+ enemy-square? close boolean_or), :elo 1735.1375870936624} {:genome (false integer_- close exec_if true integer_- 6 empty-square? 1 my-square? close integer_% integer_+ close exec_if 5 enemy-square? 8 5 8 4 false boolean_and boolean_or 0 false 9 empty-square? true enemy-square? close exec_dup integer_+ integer_- 3 4 7 true integer_+ 9 2 exec_if exec_if 3 false 8 9 5 in1 9 boolean_= 7 exec_if integer_% empty-square? 8 3 2 9 empty-square? 2 9 boolean_and 6 4 2 5 1 enemy-square? integer_% 0 2 true 1 integer_- close 6 4 7 9 8 8 4 8 3 false boolean_or 1 enemy-square? integer_+ 5), :elo 1731.0950410549053} {:genome (3 integer_* boolean_and 1 integer_- boolean_or exec_if 4 empty-square? 0 1 2 1 true true boolean_= enemy-square? my-square? 4 in1 enemy-square? 0 integer_% exec_if enemy-square? 9 integer_% 5 false exec_if 9 0 exec_if 3 empty-square? 8 exec_if), :elo 1726.723639965284} {:genome (4 close 8 boolean_and false 3 2 exec_dup false 3 6 integer_+ enemy-square? integer_% empty-square? integer_* 6 in1 true false 8 true 3 boolean_or exec_if exec_if 1 boolean_and integer_% my-square? 6 boolean_= true integer_% 6 integer_+ empty-square? close enemy-square? 3 boolean_or empty-square? true integer_* 6 1 boolean_or 7 integer_+ 5 1 7 exec_dup in1 false 1 enemy-square? close integer_+ integer_- my-square? 5 true true 8 integer_* 6 close my-square? boolean_= 7 my-square? integer_+ 6 exec_dup integer_* integer_* boolean_= integer_* enemy-square? 8 close 4 exec_dup integer_* exec_if true boolean_= integer_* boolean_and 8 5 boolean_= 6 integer_+ 4 2 in1 integer_+ boolean_or 2 3 2 boolean_or 7 boolean_and true enemy-square? 2 integer_% in1 empty-square? boolean_and close 3 6 boolean_= exec_dup my-square?), :elo 1721.0434566722722} {:genome (7 0 3 exec_dup 2 exec_if 7 7 enemy-square? integer_+ 2 exec_if 0 empty-square? my-square? boolean_and integer_% enemy-square? boolean_and integer_% boolean_or in1 6 enemy-square? 5 5 boolean_= false 5 5 exec_dup integer_* 0 integer_* exec_if 8 my-square? 4 true 1 5 6 integer_+ false integer_% exec_if 1 1 8 integer_* 0 integer_% 0 2 exec_dup 6 integer_% 4 6 true 8 boolean_or boolean_or 8 boolean_= 7 true 3 my-square? 9 1 2 5 3 integer_- 0 boolean_or 8 empty-square? 3), :elo 1712.4412421526868} {:genome (7 0 in1 integer_+ boolean_= exec_dup empty-square? 7 enemy-square? integer_+ true 8 4 0 empty-square? boolean_and integer_- 8 integer_% empty-square? integer_- in1 6 integer_- integer_% boolean_= enemy-square? 8 1 integer_- boolean_or integer_* boolean_= empty-square? 8 close integer_% 4 4 close 9 6 true 8 true my-square? boolean_and empty-square? 8 true 0 boolean_= 0 empty-square? 0 6 enemy-square? 5 integer_* in1 true 1 enemy-square? true 8 9 boolean_or 7 exec_dup exec_dup boolean_= 5 boolean_or 8 exec_if true true 4 0 in1 boolean_and my-square? my-square? exec_if boolean_or 9 5 integer_- 1 integer_- 3), :elo 1706.4367054580023} {:genome (integer_* 0 enemy-square? true exec_dup close empty-square? 7 5 integer_+ 3 in1 0 0 integer_- 4 2 enemy-square? 1 integer_% boolean_= in1 6 integer_- empty-square? boolean_or true false my-square? boolean_and boolean_or integer_* integer_- empty-square? 3 4 close in1 enemy-square? 1 7 6 empty-square? false true integer_* integer_* enemy-square? 8 3 true integer_% my-square? integer_* enemy-square? 4 3 enemy-square? integer_+ 7 true 8 boolean_or integer_+ 0 4 7 integer_* 8 in1 6 5 integer_+ 5 enemy-square? close exec_dup 3 boolean_and my-square? exec_if 9 close 2 3 6 1 false boolean_or integer_+ 8), :elo 1706.1016263969468} {:genome (integer_* 0 9 exec_if 1 integer_% integer_% boolean_or 5 5 3 9 9 3 in1 boolean_= 5 2 integer_- 4 boolean_or integer_* true 1 enemy-square? integer_* boolean_or empty-square? boolean_= 6 true true 7 my-square? boolean_or true integer_+ 7 3 integer_% 4 4 boolean_= 2 integer_- 0 false 4 integer_- boolean_or enemy-square? integer_% 0 5 6 exec_if boolean_and 4 integer_* enemy-square? 7 2 boolean_or 3 true 4 my-square? exec_dup exec_dup in1 4 3 3 boolean_= enemy-square? 8 7 2 exec_dup boolean_or boolean_or 7 4 exec_dup in1 6 close integer_+), :elo 1705.1671612420178} {:genome (integer_+ 8 2 my-square? integer_+ exec_dup 6 3 1 close 8 integer_* integer_- true 5 enemy-square? 8 true 8 4 boolean_or 4 integer_% enemy-square? close 0 1 8 true boolean_= enemy-square? 0 exec_if enemy-square? true 8 7 exec_dup 4 integer_- 5 0 enemy-square? 1 enemy-square?), :elo 1703.7079893215362} {:genome (false integer_- exec_if integer_+ integer_- exec_dup 6 3 1 close 8 4 integer_+ close 8 integer_- 8 5 enemy-square? 8 5 false 8 4 false boolean_and boolean_or 1 boolean_or 4 integer_+ false true 8 true integer_% enemy-square? my-square? close in1 0 boolean_= 1 4 8 true boolean_= enemy-square? 0 close exec_if enemy-square? exec_if integer_* in1 integer_% 9 boolean_or true 8 7 exec_if 7 exec_dup my-square? 4 boolean_or integer_- 9 boolean_and 4 4 0 5 0 boolean_and 4 integer_* enemy-square? true 1 integer_- close false 7 8 false enemy-square? exec_if integer_+), :elo 1702.4008457545735} {:genome (8 integer_* in1 integer_* 0 empty-square? exec_if boolean_= true integer_+ 6), :elo 1691.7893281670056} {:genome (6 7 integer_- exec_dup boolean_and 8 5 my-square? 6 boolean_and 2 in1 boolean_= my-square? 2 boolean_or false 7 1 5 enemy-square? boolean_= exec_if 5 exec_if my-square? boolean_or empty-square? 7 in1 integer_- exec_dup integer_% boolean_= 3 enemy-square? false close 1 in1 1 5 2 7 enemy-square? integer_- exec_if false exec_dup exec_dup empty-square? integer_* 5 exec_dup 5 false integer_% 2 boolean_and 6 boolean_and boolean_= 5 true integer_% 6 exec_if integer_% close 8 6 integer_% integer_* integer_% boolean_or my-square? close integer_- 7 boolean_and enemy-square? 2 exec_if 2 2 7 close enemy-square? 1 exec_if my-square? integer_- 5 integer_- 7 enemy-square? exec_dup boolean_= integer_- close empty-square? integer_% enemy-square? in1 exec_dup close), :elo 1684.2586940761055} {:genome (5 in1 in1 true exec_dup 6 3 9 empty-square? enemy-square? 8 false enemy-square? enemy-square? 7 empty-square? in1 integer_* in1 exec_if 0 8 in1 9 2 false enemy-square? 1 true 4 8 integer_+ boolean_= 8 exec_dup boolean_= true in1 true boolean_or), :elo 1683.2486641109635} {:genome (7 integer_- exec_if true close 6 7 1 close integer_% in1 close integer_- exec_if 5 enemy-square? enemy-square? 5 integer_% 4 false 6 integer_- integer_% false empty-square? false 5 close 6 integer_* boolean_= empty-square? 4 7 true 4 true 9 exec_if 3 false 8 my-square? 5 in1 true exec_if integer_% 0 2 empty-square? integer_- true 6 0 2 8 5 1 0 9 boolean_or 8 enemy-square? boolean_= 5 4 7 9 3 exec_dup 6 3 boolean_or boolean_and my-square? my-square? my-square? exec_if boolean_or 1 in1 3 integer_- boolean_or empty-square?), :elo 1678.7249945690446} {:genome (integer_- my-square? 3 integer_+ boolean_= integer_- empty-square? 3 boolean_= enemy-square? true in1 boolean_= 8 7 integer_% exec_if 7 empty-square? 8 1 0 integer_- boolean_and 1 integer_* integer_* enemy-square? 0 exec_if 5 false false empty-square? 5 in1 8 exec_dup false 4 close my-square? false boolean_= 7 integer_- integer_% 1 exec_dup close 7 exec_dup 6 integer_+ enemy-square? close integer_* 3 integer_% integer_- 9 boolean_or boolean_= integer_* 0 integer_+ 0 close 9 exec_dup integer_- 3 boolean_or exec_dup true integer_+ in1 true empty-square? 0 2 integer_% my-square? integer_+ exec_dup exec_if boolean_and 2 empty-square? exec_dup), :elo 1678.4197897119718} {:genome (integer_* integer_- exec_if true integer_- integer_% 6 empty-square? 1 5 integer_% integer_+ true integer_- exec_if 9 2 8 5 0 4 false 4 boolean_or boolean_or close integer_+ 9 empty-square? true enemy-square? boolean_or 6 empty-square? integer_- false true 4 my-square? integer_% integer_* 2 integer_- exec_if 3 6 false 8 boolean_= 5 in1 9 0 false 7 integer_% exec_if exec_dup 2 9 integer_* integer_- 9 boolean_and 4 2 5 my-square? boolean_or boolean_= enemy-square? integer_% 2 integer_+ 7 2 close boolean_and 4 7 4 7 true 8 3 false exec_dup in1 enemy-square? exec_if integer_+ boolean_=), :elo 1677.0120871852832} {:genome (false integer_- exec_if integer_+ integer_- exec_dup 6 3 1 close 8 4 close 8 integer_- 8 5 enemy-square? 8 5 false 8 4 false boolean_and boolean_or 1 boolean_or 4 integer_+ false true 8 true integer_% enemy-square? my-square? 0 boolean_= 1 4 8 true boolean_= enemy-square? 0 exec_if enemy-square? exec_if integer_* in1 integer_% 9 boolean_or true 8 7 exec_if 7 exec_dup my-square? 4 boolean_or integer_- 9 boolean_and 4 4 0 0 boolean_and 4 integer_* enemy-square? true 1 integer_- close false 7 8 false enemy-square? integer_+), :elo 1676.8842310999412} {:genome (integer_% 5 in1 integer_+ boolean_= exec_dup integer_+ 3 1 integer_+ boolean_= 4 integer_% boolean_and exec_if integer_- 8 integer_% empty-square? integer_- boolean_and 4 close 0 integer_* 6 8 1 integer_- true 4 exec_if true 8 integer_% 8 4 close in1 0 true 8 boolean_= 3 boolean_and 8 3 7 boolean_= 8 empty-square? 0 exec_if 5 integer_* in1 integer_% boolean_or true 8 integer_+ empty-square? 7 exec_dup exec_dup my-square? 4 boolean_or 8 exec_if true true 4 0), :elo 1669.8749314911056} {:genome (false 0 true integer_- 6 empty-square? empty-square? 7 enemy-square? integer_+ true in1 0 0 empty-square? 4 false enemy-square? boolean_or 9 boolean_= in1 exec_dup integer_- integer_% boolean_= enemy-square? true integer_+ 9 2 integer_* 3 empty-square? 5 9 close 4 exec_if integer_% 9 6 2 false 9 4 integer_* enemy-square? 8 enemy-square? 2 true 0 integer_* 4 7 true true 6 3 true boolean_or enemy-square? enemy-square? integer_+ 9 boolean_or integer_* 8 enemy-square? 5 7 true 3 6 3 my-square? my-square? my-square? exec_if boolean_or 9 close 1 3 0 false boolean_or integer_+ empty-square? integer_- 3), :elo 1669.2344499065052} {:genome (integer_* 0 9 exec_if exec_dup integer_% my-square? 4 5 9 3 exec_if 9 2 integer_- 5 4 boolean_or 5 integer_+ 1 integer_* true empty-square? boolean_= boolean_or true boolean_or empty-square? boolean_or true 7 integer_% integer_* 2 integer_- empty-square? 3 6 4 1 0 enemy-square? 2 0 false 7 exec_dup integer_* integer_* boolean_or enemy-square? integer_% 3 true integer_% 5 my-square? boolean_= enemy-square? 4 3 integer_+ 7 2 7 boolean_or in1 boolean_or integer_+ 7 4 7 exec_dup exec_dup in1 close integer_+ boolean_= enemy-square? close boolean_or), :elo 2053.336910158867}))
+     "This is populaition.")))
 
 
 (comment
