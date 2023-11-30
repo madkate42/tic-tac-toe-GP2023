@@ -178,7 +178,32 @@
         lines (concat rows cols diags)]
     (some #(= [1 1 1] %) lines)))
 
-;; elo score utilities
+
+(defn check-board-position
+  [board position]
+  ;; (println position)
+  (if (= (type position) Long)
+    (if (and (>= position 0) (< position 9))
+      (nth board position)
+      false)
+    false))
+
+
+
+; print population 
+
+(defn print-pop
+  [pop]
+  (loop [pops pop
+         index 0]
+    (if (not (empty? pops))
+      (do
+        (println (:elo (first pops)) "with index" index)
+        (recur (rest pops) (inc index)))
+      "This is populaition.")))
+
+
+;; Elo score utilities | Elo utilities
 
 (defn adjust-elo
   "d is either 1 if rating1 wins, 
@@ -380,15 +405,6 @@
    (make-push-instruction state not-f [:boolean] :boolean)))
 
 
-(defn check-board-position 
-  [board position]
-  ;; (println position)
-  (if (= (type position) Long)
-    (if (and (>= position 0) (< position 9))
-      (nth board position)
-      false)
-    false))
-
 (defn empty-square?
   "Pop the integer, checks if board at that integer is empty,
    pushes true if empty, false if not empty.
@@ -427,12 +443,6 @@
         (push-to-stack (pop-stack state :integer) :boolean false))
       (push-to-stack (pop-stack state :integer) :boolean false))))
 
-(defn check-win?
-  "Check for its own potential win???"
-  [state]
-  :STUB
-  )
-
 (defn exec_dup
   [state]
   (if (empty-stack? state :exec)
@@ -453,33 +463,9 @@
           (update new-state :exec #(rest %))))
     state))
 
-(defn exec_do*range
-  "idkekkk...
-   An iteration instruction that executes the top item on the EXEC stack a number of times that depends on the top two integers, while also pushing the loop counter onto the INTEGER stack for possible access during the execution of the body of the loop. This is similar to CODE.DO*COUNT except that it takes its code argument from the EXEC stack. The top integer is the 'destination index' and the second integer is the 'current index.' First the code and the integer arguments are saved locally and popped. Then the integers are compared. If the integers are equal then the current index is pushed onto the INTEGER stack and the code (which is the 'body' of the loop) is pushed onto the EXEC stack for subsequent execution. If the integers are not equal then the current index will still be pushed onto the INTEGER stack but two items will be pushed onto the EXEC stack -- first a recursive call to EXEC.DO*RANGE (with the same code and destination index, but with a current index that has been either incremented or decremented by 1 to be closer to the destination index) and then the body code. Note that the range is inclusive of both endpoints; a call with integer arguments 3 and 5 will cause its body to be executed 3 times, with the loop counter having the values 3, 4, and 5. Note also that one can specify a loop that 'counts down' by providing a destination index that is less than the specified current index."
-  [state])
-  
 
-(defn exec_do*range
-  [state]
-  (if (and
-       (not (empty-stack? state :integer))
-       (not (empty-stack? state :exec))
-       (> (count (state :integer)) 1))
-    (let [top-integer (peek-stack state :integer)
-          second-integer (peek-stack (pop-stack state :integer) :integer)
-          new-state (pop-stack (pop-stack state :integer) :integer)
-          top-exec (peek-stack state :exec)
-          new-state (pop-stack new-state :exec)
-          next-index (if (> second-integer top-integer) (dec second-integer) (inc second-integer))
-          updated-exec (if (= second-integer top-integer)
-                         '(top-exec)
-                         (list 'exec_do*range next-index top-integer 'top-exec))]
-      (-> new-state
-          (update :integer #(cons next-index %))
-          (update :exec #(cons updated-exec %))))
-    state))
 
-;; (interpret-one-step example-execdorange-state)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Interpreter
 
 (defn interpret-one-step
@@ -493,7 +479,6 @@
   (let [newState (pop-stack push-state :exec)
         topExecItem (peek-stack push-state :exec)
         topExecItemType (type topExecItem)]
-    ;; (println push-state)
     (cond
       (= topExecItemType Boolean) (push-to-stack newState :boolean topExecItem)
       (= topExecItemType Long) (push-to-stack newState :integer topExecItem)
@@ -528,7 +513,7 @@
         (recur (interpret-one-step state) (inc index))))))
 
 
-;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Translation from Plushy genomes to Push programs
 
 (defn translate-plushy-to-push
@@ -557,7 +542,7 @@
             (recur (concat push [i]) (rest plushy)))))))) ;; anything else
 
 
-;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; GP
 
 (defn make-random-plushy-genome
@@ -587,11 +572,10 @@
         return-state (interpret-push-program program start-state)
         position (peek-stack return-state :integer) 
         new-board board]
-    ;; (print-board new-board)
-    ;; (println individ)
     (if (valid-move? board position)
-      (do 
-        ;; (print-board (add-move-to-board board position))
+      (do
+        ; Uncomment below to see the game progress!
+        ;; (print-board (add-move-to-board board position)) 
         (add-move-to-board board position))
       false)))
 
@@ -604,7 +588,7 @@
 
       (check-win new-board) ;; Current player wins
       (do 
-        (println "We have a win, individuals:"
+        (println "We have a win! Individuals:"
                  current 
                  other)
         {:winner current :loser other :draw false :win true})
@@ -654,18 +638,6 @@
       (let [[updated-individual updated-competitor] (compete individual (first remaining))]
         (recur updated-individual (rest remaining) (conj updated-population updated-competitor))))))
 
-(defn round-robin-bloated
-  "Every individual competes against every other
-   individal. Population is returned in the same order"
-  [population]
-  (loop [updated-pop (compete-all (first population) population)
-         new-pop (vector (first updated-pop))]
-    (let [remaining (rest updated-pop)]
-      (if (empty? remaining)
-        new-pop
-        (recur (compete-all (first remaining) remaining) (conj new-pop (first remaining)))))))
-    
-
 (defn round-robin
   "Applies compete-all to each individual in the population. After each individual
    competes against the entire population, they are added to a new population list."
@@ -690,19 +662,14 @@
            current-start-elo minimum
            index 0]
       (if (= index (+ 1 n))
-        (do 
-          ;; (println "Current new-pop count" (count new-pop))
-          new-pop)
-        (do 
-          ;; (println "Divided Tournament " index new-pop)
-          ;; (println current-start-elo margin)
-          (recur (flatten (conj new-pop
-                              (round-robin
-                               (filter-by-elo-range population
-                                                    current-start-elo
-                                                    (+ current-start-elo margin)))))
-               (+ current-start-elo margin)
-               (inc index)))))))
+        new-pop
+        (recur (flatten (conj new-pop
+                               (round-robin
+                                (filter-by-elo-range population
+                                                     current-start-elo
+                                                     (+ current-start-elo margin)))))
+                (+ current-start-elo margin)
+                (inc index))))))
 
 
 (defn evaluate-population 
@@ -757,10 +724,9 @@
   25% to uniform-addition, and 25% to uniform-deletion."
   [population instructions]
   (let [parent1-genome ((tournament-selection population) :genome)
-        parent2-genome ((tournament-selection population) :genome)
         chance (rand)]
     (cond
-      (>= chance 0.5) (hash-map :genome (crossover parent1-genome parent2-genome))
+      (>= chance 0.5) (hash-map :genome (crossover parent1-genome ((tournament-selection population) :genome)))
       (>= chance 0.25) (hash-map :genome (uniform-addition parent1-genome instructions))
       :else (hash-map :genome (uniform-deletion parent1-genome)))))
 
@@ -784,7 +750,6 @@
                                  :elo parent1-elo)
       :else (hash-map :genome (uniform-deletion parent1-genome)
                       :elo parent1-elo))))
-
 
 (defn mutate-population 
   "Population with evaluated elos should be passed"
@@ -811,16 +776,12 @@ Best program size: 33
 Best total error: 727
 Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
   "
-  [population generation] ;; since I pass sorted pop from GP, I don't sort here
-  (let [best (first population)]
-    (println "----------------------------------------------")
-    (println "             Generation" generation "         ")
-    (println "----------------------------------------------")
-    (println "Best program:" (best :program))
-    (println "Best total error:" (best :total-error))
-    (println "Best program size:" (count (best :program)))
-    (println "Best errors:" (best :errors))
-    (println "----------------------------------------------")))
+  [sorted-population generation] ;; since I pass sorted pop from GP, I don't sort here
+  (println "Best ones:" (first sorted-population) (nth sorted-population 1))
+  (println "Highest elo: " (:elo (first sorted-population)) ", worst elo:" (:elo (last sorted-population)))
+  (println "-----------------")
+  (println "Generation #" generation)
+  (println "-----------------"))
 
 (defn initialize-population
   [population-size max-initial-plushy-size]
@@ -830,36 +791,6 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
                                                     max-initial-plushy-size),
                          :elo 1000)))
 
-;; https://clojuredocs.org/clojure.core/sort-by
-(defn push-gp
-  "Main GP loop. Initializes the population, and then repeatedly
-    generates and evaluates new populations. Stops if it finds an
-    individual with 0 error (and should return :SUCCESS, or if it
-    exceeds the maximum generations (and should return nil). Should print
-    report each generation.
-    --
-    The only argument should be a map containing the core parameters to
-    push-gp. The format given below will decompose this map into individual
-    arguments. These arguments should include:
-     - population-size
-     - max-generations
-     - error-function
-     - instructions (a list of instructions)
-     - max-initial-plushy-size (max size of randomly generated Plushy genomes)"
-  [{:keys [population-size max-generations error-function instructions max-initial-plushy-size]
-    :as argmap}]
-  (loop [population (initialize-population population-size max-initial-plushy-size) ; start pop
-         generation 1] 
-     (let [sorted-population (sort-by :total-error (map error-function population)) ; sort pop from best to worst
-           new-child (select-and-vary sorted-population instructions)] ; make a new child
-       (report sorted-population generation)
-       (if (or (= ((first sorted-population) :total-error) 0)
-               (= generation max-generations))
-         sorted-population
-         ; below, delete worst individ (last in sorted list) and add a child to list
-         (recur (concat (butlast sorted-population) (list new-child))
-                (inc generation))))))
-
 (defn tic-tac-toe-push-gp
   "Let's see real quick how it does."
   [{:keys [population-size max-generations instructions max-initial-plushy-size round-robin-frequency stratas]
@@ -867,20 +798,13 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
   (loop [population (initialize-population population-size max-initial-plushy-size) ; start pop
          generation 0]
     (if (< generation max-generations)
-      (do
-        (println population)
-        (let [sorted-population (reverse (sort-by :elo (evaluate-population population
-                                                                            round-robin-frequency
-                                                                            generation
-                                                                            stratas))) ; sort pop from best to worst
-              new-pop (adjust-elo-scores-to-target (mutate-population sorted-population instructions) 1000)] ; make a new child 
-          (println "Best ones:" (first sorted-population) (nth sorted-population 1))
-          (println "Highest elo: "(:elo (first sorted-population)) ", worst elo:" (:elo (last sorted-population)))
-          (println "-----------------")
-          (println "Generation #" generation)
-          (println "-----------------")
-          (recur new-pop
-                 (inc generation))))
+      (let [sorted-population (reverse (sort-by :elo (evaluate-population population
+                                                                          round-robin-frequency
+                                                                          generation
+                                                                          stratas))) ; sort pop from best to worst
+            new-pop (adjust-elo-scores-to-target (mutate-population sorted-population instructions) 1000)] ; make a new child 
+        (report sorted-population generation)
+        (recur new-pop (inc generation)))
       population)))
 
 
@@ -890,47 +814,10 @@ Best errors: (117 96 77 60 45 32 21 12 5 0 3 4 3 0 5 12 21 32 45 60 77)
   ([args]
    (tic-tac-toe-push-gp {:instructions default-instructions
                          :max-generations 10
-                         :population-size 10
+                         :population-size 50
                          :max-initial-plushy-size 100
                          :round-robin-frequency 5
                          :stratas 5})))
-
-
-(def long-run2 (main))
-(def short-run2 (main))
-
-
-;; (defn sum-elo [my-list]
-;;   (reduce #(+ %1 (get %2 :elo 0)) 0 my-list))
-
-;; (def hello (main))
-
-;; (sum-elo hello)
-
-;; (:elo (first (sort-by :elo hello)))
-
-;; (compete (first (reverse (sort-by :elo hello))) (last (reverse (sort-by :elo hello))))
-
-;; (def advanced (main))
-;; (compete (first (reverse (sort-by :elo advanced))) (last (reverse (sort-by :elo advanced))))
-
-;; (def today-long-run (main))
-
-(compete (first (reverse (sort-by :elo long-run2))) (second (reverse (sort-by :elo long-run2))))
-(def inds '({:genome (exec_dup my-square? integer_% 4 7 5 exec_if exec_if 5 boolean_and boolean_and exec_if 1 1 6 6 2 4 boolean_not 2 0 2 exec_if 5 boolean_= boolean_= my-square? exec_if exec_if 8 3 3 exec_if 6 exec_if 5 4 2 enemy-square? boolean_not 2 4 enemy-square? in1 integer_% integer_+ 7 8 5 8 8 integer_% exec_if 4 my-square? integer_= in1 boolean_and close integer_+ exec_dup integer_% boolean_or boolean_not exec_dup integer_< 3 boolean_= integer_* my-square? integer_> my-square? integer_- 9 integer_% true true integer_+ 4 integer_= boolean_and false exec_dup integer_- boolean_or boolean_or integer_< exec_dup integer_+ 8 5 6 4 6 integer_% integer_+ integer_> 9 close 4 empty-square? 1 0 7 integer_> true exec_dup 8 7 4 integer_+ 8 integer_* integer_+ boolean_= integer_< integer_< integer_* integer_+ 7 exec_dup boolean_not true integer_< 6 false close 4 integer_> enemy-square? boolean_= 6 6 5 boolean_or 8 5 0 boolean_not 7 6 2 in1 exec_dup integer_> 9 6 9 integer_- 9 boolean_not integer_< 5 in1 7), :elo 38170.14312884259} {:genome (exec_dup my-square? boolean_and 1 4 3 exec_if 3 true exec_dup integer_% 2 boolean_or exec_if integer_% exec_if my-square? empty-square? exec_if 8 1 exec_if true 0 integer_* false 2 enemy-square? 2 my-square? boolean_not true integer_- in1 8 integer_- my-square? 2 exec_if 6 boolean_or boolean_or integer_- exec_if 4 exec_if 7 2 3 5 4 3 2 boolean_and exec_if 6 enemy-square? 2 enemy-square? boolean_and boolean_and 5 enemy-square? boolean_or 2 2 9 7 integer_> 4 integer_+ integer_* integer_+ close integer_+ 6 my-square? boolean_or my-square? true close boolean_or integer_> empty-square? integer_> 6 8 boolean_= true 4 true integer_- exec_if integer_< integer_- integer_> 9 integer_> 0 integer_* integer_% exec_if exec_if enemy-square? 5 boolean_or 6 enemy-square? integer_= false 5 1 3 8 exec_if 0 integer_< boolean_= integer_= 5 enemy-square? boolean_not 9 integer_% empty-square? empty-square? 6 true 8 integer_= 3 enemy-square? false exec_dup close boolean_not close 9 6 in1 boolean_or exec_dup integer_+ 6 boolean_= 5 integer_< close 2 1 8 exec_if boolean_= 2 integer_< 1 boolean_or boolean_= integer_> false enemy-square? integer_< 8 8 boolean_and exec_dup integer_< close close 8 8 integer_> 8 integer_< integer_= boolean_or integer_= true 5 8 0 boolean_or 9 empty-square? integer_- 4 9 integer_> 2 boolean_= integer_% boolean_not boolean_= close boolean_not boolean_or empty-square?), :elo 38314.21094425386}))
-
-(compete (first inds) (second inds))
-;; (def today-long-run2 (main))
-
-(defn print-pop 
-  [pop]
-  (loop [pops pop
-         index 0]
-    (if (not (empty? pops))
-     (do 
-       (println (:elo (first pops)) "with index" index)
-       (recur (rest pops) (inc index)))
-     "This is populaition.")))
 
 
 (comment
