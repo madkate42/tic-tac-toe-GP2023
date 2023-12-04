@@ -3,103 +3,12 @@
 (comment
   "Kate Bondarenko")
 
-;;;;;;;;;;
-;; Examples
-
-; An example Push state
-(def example-push-state
-  {:exec '(exec_if integer_+ integer_-)
-   :integer '(100 10 20 3 4 5 6 7)
-   :string '("abc" "def")
-   :boolean (list true false)
-   :input {:in1 4 :in2 6}})
-
-(def example-player-state
-  {:exec '(exec_if integer_+ integer_-)
-     :integer '(2 10 20 3 4 5 6 7)
-     :string '("abc" "def")
-     :boolean (list true true)
-     :board [0 0 1 0 0 1 0 0 2]})
-
-(def example-state-exec-if
-  {:exec '(exec_if integer_+ integer_-)
-   :integer '(10 6)
-   :string '("abc" "def")
-   :boolean (list true)
-   :board [0 0 1 0 0 1 0 0 2]})
-
-(def individ-exec-if
-  {:genome '(true 2 2 exec_if integer_+ integer_-)
-   :elo 1000})
-
-(def individ-exec-if2
-  {:genome '(true exec_if)
-   :elo 1000})
-
-; An example Plushy genome
-(def example-plushy-genome
-  '(3 5 integer_* exec_dup "hello" 4 "world" integer_- close))
-
-; An example Push program
-; This is the program that would result from the above Plushy genome
-(def example-push-program
-  '(integer_* exec_dup ("hello" 4 "world" integer_-)))
-
-
-(def example-great-player1
-  {
-   :genome '(4
-             empty-square?
-             exec_if
-             4
-             5)
-   :elo 1000})
-  
-
-(def example-great-player2
-  {:genome '(4
-             empty-square?
-             exec_if
-             integer_+
-             close
-             integer_%
-             2
-             close)
-   :elo 1000})
-
 
 ;;;;;;;;;;
 ; Instructions must all be either functions that take one Push state and return another
 ; or constant literals.
 ; The exception is `close`, which is only used in translation from Plushy to Push
 
-(def default-instructions
-  (list
-   'in1
-   'integer_+
-   'integer_-
-   'integer_*
-   'integer_%
-   'integer_=
-   'integer_>
-   'integer_< 
-   'boolean_=
-   'boolean_and
-   'boolean_or
-   'boolean_not
-   'exec_dup
-   'exec_if
-   'close
-   'empty-square?
-   'my-square?
-   'enemy-square?
-   0 1 2 3 4 5 6 7 8 9
-   true 
-   false))
-
-(def opened-blocks
-  {'exec_dup 1
-   'exec_if 2})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Utilities
@@ -478,6 +387,34 @@
     state))
 
 
+(def default-instructions
+  (list
+   #'in1
+   #'integer_+
+   #'integer_-
+   #'integer_*
+   #'integer_%
+   #'integer_=
+   #'integer_>
+   #'integer_<
+   #'boolean_=
+   #'boolean_and
+   #'boolean_or
+   #'boolean_not
+   #'exec_dup
+   #'exec_if
+   'close
+   #'empty-square?
+   #'my-square?
+   #'enemy-square?
+   0 1 2 3 4 5 6 7 8 9
+   true
+   false))
+
+(def opened-blocks
+  {'exec_dup 1
+   'exec_if 2})
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Interpreter
 
@@ -805,12 +742,24 @@
 
 
 
-
+(defn print-individual
+  [individual]
+  (println "Elo:" (:elo individual))
+  (println "Genome:"
+           (clojure.string/join " "
+                     (map (fn [x]
+                            (if (fn? x)
+                              (-> x meta :name str (clojure.string/replace "#'push411.core/" ""))
+                              (clojure.string/replace x "#'push411.core/" "")))
+                          (:genome individual)))))
 (defn report
   "Reports information on the population each generation.
    Takes a sorted (!!!) population!"
   [sorted-population generation] ;; since I pass sorted pop from GP, I don't sort here
-  (println "Best ones:" (first sorted-population) (nth sorted-population 1))
+  (println "      BEST ONES:")
+  (print-individual (first sorted-population)) 
+  (println)
+  (print-individual (nth sorted-population 1))
   (println "Highest elo: " (:elo (first sorted-population)) ", worst elo:" (:elo (last sorted-population)))
   (println "-----------------")
   (println "Generation #" generation)
@@ -861,6 +810,14 @@
         (recur new-pop (inc generation)))
       population)))
 
+; overflow (-> #'nothing meta :name)
+
+
+
+;; (print-individual (first monday))
+;; (first monday)
+
+;; (def another-run (main))
 
 (defn main
   "Runs push-gp, giving it a map of arguments."
@@ -872,7 +829,6 @@
                          :max-initial-plushy-size 100
                          :round-robin-frequency 5
                          :stratas 5})))
-
 
 (comment
 
